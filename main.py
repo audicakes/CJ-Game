@@ -405,33 +405,32 @@ class Game:
         # perpendicular unit
         if player.facing in ('left', 'right'):
             pcol, prow = (0, 1)
+            side_range = [-1, 0, 1]
         else:
             pcol, prow = (1, 0)
+            side_range = [-1, 0, 1]
+        # For each side, track if a wall has been hit
+        blocked = {side: False for side in side_range}
         for depth in range(1, depth_max + 1):
-            for side in (-1, 0, 1):
+            for side in side_range:
+                if blocked[side]:
+                    continue
                 tcol = player.col + dcol*depth + pcol*side
                 trow = player.row + drow*depth + prow*side
-                if not in_bounds(tcol, trow): 
+                if not in_bounds(tcol, trow):
                     continue
-                # Walk forward, then sideways; any wall on the way blocks only tiles behind it
-                blocked = False
-                # forward steps
-                for k in range(1, depth+1):
-                    pc, pr = player.col + dcol*k, player.row + drow*k
-                    ob = self.obstacle_at(pc, pr)
+                # Check all tiles from shooter up to this tile in this fan line
+                wall_found = False
+                for step in range(1, depth+1):
+                    check_col = player.col + dcol*step + pcol*side
+                    check_row = player.row + drow*step + prow*side
+                    ob = self.obstacle_at(check_col, check_row)
                     if ob and ob.blocks_shots:
-                        # If the wall is before the target tile, block this tile and all further ones in this direction
-                        if (pc, pr) != (tcol, trow):
-                            blocked = True
-                            break
-                if blocked:
+                        wall_found = True
+                        break
+                if wall_found:
+                    blocked[side] = True
                     continue
-                # sideways at the end (skip if side==0)
-                if side != 0:
-                    pc, pr = tcol, trow
-                    ob = self.obstacle_at(pc, pr)
-                    if ob and ob.blocks_shots:
-                        continue  # can't shoot into a wall on the side
                 tiles.add((tcol, trow))
         return sorted(list(tiles))
 
