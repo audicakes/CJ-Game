@@ -155,6 +155,40 @@ class UnknownItem(Item):
             ItemClass(self.col, self.row).on_pickup(player, game)
         return True
 
+class MysteryWeapon(Item):
+    def __init__(self, col, row):
+        super().__init__(col, row, name="Mystery Weapon", is_weapon=True)
+    def on_pickup(self, player, game=None):
+        # Remove any weapon
+        player.has_deagle = False
+        player.has_shotgun = False
+        # Give a random weapon
+        from weapon import Deagle, Shotgun
+        weapon_cls = random.choice([Deagle, Shotgun])
+        weapon_cls(self.col, self.row).on_pickup(player, game)
+        return True
+
+class MysteryItem(Item):
+    def __init__(self, col, row):
+        super().__init__(col, row, name="Mystery Item", is_tool=True, is_consumable=True)
+    def on_pickup(self, player, game=None):
+        from tool import AgilityBoots, Scope
+        from consumable import Grenade, Shield
+        possible = []
+        if not player.has_agility_boots:
+            possible.append(AgilityBoots)
+        if not player.has_scope:
+            possible.append(Scope)
+        if not player.has_shield:
+            possible.append(Shield)
+        if not player.has_grenade:
+            possible.append(Grenade)
+        if not possible:
+            return False
+        item_cls = random.choice(possible)
+        item_cls(self.col, self.row).on_pickup(player, game)
+        return True
+
 class Game:
     def __init__(self):
         pygame.init()
@@ -164,6 +198,12 @@ class Game:
         self.font = pygame.font.SysFont(None, 24)
         self.font_small = pygame.font.SysFont(None, 20)
         self.font_big = pygame.font.SysFont(None, 36, bold=True)
+
+        # Load obstacle images
+        self.wall_img = pygame.image.load("wall.png").convert_alpha()
+        self.wall_img = pygame.transform.smoothscale(self.wall_img, (CELL_SIZE - 2*CELL_MARGIN, CELL_SIZE - 2*CELL_MARGIN))
+        self.water_img = pygame.image.load("water.png").convert_alpha()
+        self.water_img = pygame.transform.smoothscale(self.water_img, (CELL_SIZE - 2*CELL_MARGIN, CELL_SIZE - 2*CELL_MARGIN))
 
         self.current_player_index = 0
         self.game_over = False
@@ -220,8 +260,8 @@ class Game:
 
         # obstacles
         self.obstacles = []
-        min_obstacles = (GRID_COLUMNS * GRID_ROWS) // 10
-        max_obstacles = (GRID_COLUMNS * GRID_ROWS) // 6
+        min_obstacles = (GRID_COLUMNS * GRID_ROWS) // 15
+        max_obstacles = (GRID_COLUMNS * GRID_ROWS) // 9 + 3
         obstacle_count = random.randint(min_obstacles, max_obstacles)
         tries_total = 0
         while len(self.obstacles) < obstacle_count and tries_total < obstacle_count * 50:
@@ -233,8 +273,8 @@ class Game:
             used_positions.add((col, row))
             self.obstacles.append(Wall(col, row) if random.random() < 0.6 else Water(col, row))
 
-        # items: players*2 ± 2 (at least 1)
-        base_items = self.num_players * 2
+        # items: players*3 ± 2 (at least 1)
+        base_items = self.num_players * 3
         min_items = max(1, base_items - 2)
         max_items = base_items + 2
         target_item_count = random.randint(min_items, max_items)
@@ -242,15 +282,33 @@ class Game:
         self.items = []
         placed = 0
         tries_items = 0
-        while placed < target_item_count and tries_items < 2000:
+        # Decide how many of each type (roughly half/half)
+        num_items = target_item_count
+        num_weapons = num_items // 2.5
+        num_misc = num_items - num_weapons
+        used_positions = set((p.col, p.row) for p in self.players)
+        used_positions.update((ob.col, ob.row) for ob in self.obstacles)
+        # Place MysteryWeapons
+        while num_weapons > 0 and tries_items < 2000:
             tries_items += 1
             col = random.randrange(0, GRID_COLUMNS)
             row = random.randrange(0, GRID_ROWS)
             if (col, row) in used_positions:
                 continue
             used_positions.add((col, row))
-            self.items.append(UnknownItem(col, row))
-            placed += 1
+            self.items.append(MysteryWeapon(col, row))
+            num_weapons -= 1
+        # Place MysteryItems
+        tries_items = 0
+        while num_misc > 0 and tries_items < 2000:
+            tries_items += 1
+            col = random.randrange(0, GRID_COLUMNS)
+            row = random.randrange(0, GRID_ROWS)
+            if (col, row) in used_positions:
+                continue
+            used_positions.add((col, row))
+            self.items.append(MysteryItem(col, row))
+            num_misc -= 1
 
         self.sidebar_hover_item = None
 
@@ -502,7 +560,12 @@ class Game:
             y = HUD_HEIGHT + ob.row * CELL_SIZE + CELL_MARGIN
             w = CELL_SIZE - 2 * CELL_MARGIN
             h = CELL_SIZE - 2 * CELL_MARGIN
-            pygame.draw.rect(self.screen, ob.color, (x, y, w, h), border_radius=6)
+            if isinstance(ob, Wall):
+                self.screen.blit(self.wall_img, (x, y))
+            elif isinstance(ob, Water):
+                self.screen.blit(self.water_img, (x, y))
+            else:
+                pygame.draw.rect(self.screen, ob.color, (x, y, w, h), border_radius=6)
 
         # items
         for it in self.items:
@@ -510,9 +573,17 @@ class Game:
             y = HUD_HEIGHT + it.row * CELL_SIZE + CELL_MARGIN
             w = CELL_SIZE - 2 * CELL_MARGIN
             h = CELL_SIZE - 2 * CELL_MARGIN
-            base = (185, 185, 185)
+            if isinstance(it, MysteryWeapon):
+                base = (220, 180, 80, 0)
+                icon = "W"
+            elif isinstance(it, MysteryItem):
+                base = (120, 200, 220, 0)
+                icon = "I"
+            else:
+                base = (185, 185, 185, 0)
+                icon = "?"
             pygame.draw.rect(self.screen, base, (x, y, w, h), border_radius=6)
-            qm = self.font_big.render("?", True, (40, 40, 40))
+            qm = self.font_big.render(icon, True, (40, 40, 40))
             self.screen.blit(qm, (x + (w - qm.get_width())//2, y + (h - qm.get_height())//2))
 
     def draw_highlights(self):
