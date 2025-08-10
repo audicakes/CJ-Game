@@ -10,8 +10,10 @@ class Grenade(Consumable):
         super().__init__(col, row, name="Grenade",
                          description="Right-click a red tile in the 3×3 slab ahead to throw. Ignores walls. One use.")
     def on_pickup(self, player, game=None) -> bool:
-        # allow stacking grenades; duplicates are fine because they have a count
-        player.grenade_count += 1
+        if player.has_grenade:
+            return False
+        player.has_grenade = True
+        player.grenade_count = 1
         return True
 
 class Shield(Consumable):

@@ -2,10 +2,10 @@ import pygame
 import sys
 import time
 import random
-from obstacle import Wall, Water, Item
 from weapon import Deagle, Shotgun
 from tool import AgilityBoots, Scope
 from consumable import Grenade, Shield
+from obstacle import Wall, Water, Item
 
 # -----------------------------
 # Config
@@ -110,6 +110,7 @@ class Player:
         self.has_scope = False
         self.has_shield = False
         self.grenade_count = 0
+        self.has_grenade = False  # Add this line
 
         # UI selection
         self.consumable_selected = None  # e.g., "Grenade"
@@ -123,6 +124,37 @@ class Player:
 # -----------------------------
 # Game State
 # -----------------------------
+
+class UnknownItem(Item):
+    def __init__(self, col, row):
+        super().__init__(col, row, name="Unknown", is_weapon=False, is_tool=False, is_consumable=False)
+
+    def on_pickup(self, player, game=None):
+        # List all possible item classes (no duplicates allowed)
+        possible = []
+        if not player.has_deagle:
+            possible.append(Deagle)
+        if not player.has_shotgun:
+            possible.append(Shotgun)
+        if not player.has_agility_boots:
+            possible.append(AgilityBoots)
+        if not player.has_scope:
+            possible.append(Scope)
+        if not player.has_shield:
+            possible.append(Shield)
+        if not player.has_grenade:  # We'll add this property below
+            possible.append(Grenade)
+        if not possible:
+            return False  # nothing to give
+        ItemClass = random.choice(possible)
+        # Mark grenade as "owned" after pickup
+        if ItemClass is Grenade:
+            player.has_grenade = True
+            player.grenade_count = 1
+        else:
+            ItemClass(self.col, self.row).on_pickup(player, game)
+        return True
+
 class Game:
     def __init__(self):
         pygame.init()
@@ -179,6 +211,7 @@ class Game:
             player.has_agility_boots = False
             player.has_scope = False
             player.has_shield = False
+            player.has_grenade = False   # Add this line
             player.grenade_count = 0
             player.consumable_selected = None
             player.last_water_pos = None
@@ -216,14 +249,7 @@ class Game:
             if (col, row) in used_positions:
                 continue
             used_positions.add((col, row))
-            # mix: Deagle, Shotgun, Boots, Scope, Grenade, Shield
-            r = random.random()
-            if   r < 0.22:  self.items.append(Deagle(col, row))
-            elif r < 0.42:  self.items.append(Shotgun(col, row))
-            elif r < 0.62:  self.items.append(AgilityBoots(col, row))
-            elif r < 0.78:  self.items.append(Scope(col, row))
-            elif r < 0.90:  self.items.append(Grenade(col, row))
-            else:           self.items.append(Shield(col, row))
+            self.items.append(UnknownItem(col, row))
             placed += 1
 
         self.sidebar_hover_item = None
@@ -269,8 +295,8 @@ class Game:
             inventory.append(("Agility Boots", "Agility Boots", "Hold Shift + Arrow to move 2 tiles straight."))
         if player.has_scope:
             inventory.append(("Scope", "Scope", "Your weapons reach 1 extra tile forward."))
-        if player.grenade_count > 0:
-            inventory.append(("Grenade", f"Grenade x{player.grenade_count}", "Right-click a red tile in the 3×3 slab ahead to throw. Ignores walls. One use."))
+        if player.has_grenade and player.grenade_count > 0:
+            inventory.append(("Grenade", f"Grenade", "Right-click a red tile in the 3×3 slab ahead to throw. Ignores walls. One use."))
         if player.has_shield:
             inventory.append(("Shield", "Shield", "Blocks the next damage you would take, then breaks."))
         return inventory

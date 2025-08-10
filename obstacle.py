@@ -15,7 +15,6 @@ class Obstacle:
     def pos(self):
         return (self.col, self.row)
 
-
 class Wall(Obstacle):
     """
     Blocks player movement AND shots (line-of-sight).
@@ -30,7 +29,6 @@ class Water(Obstacle):
     """
     def __init__(self, col: int, row: int):
         super().__init__(col, row, blocks_movement=False, blocks_shots=False, color=(40, 110, 140))
-
 
 class Item(Obstacle):
     """
