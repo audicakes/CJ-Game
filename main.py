@@ -20,7 +20,7 @@ SIDEBAR_WIDTH = 260
 MAP_WIDTH_PX = GRID_COLUMNS * CELL_SIZE
 MAP_HEIGHT_PX = GRID_ROWS * CELL_SIZE
 WINDOW_WIDTH = MAP_WIDTH_PX + SIDEBAR_WIDTH
-WINDOW_HEIGHT = MAP_HEIGHT_PX + HUD_HEIGHT
+WINDOW_HEIGHT = MAP_HEIGHT_PX + HUD_HEIGHT + 120  # Increased by 120px for more sidebar space
 FPS = 60
 
 # Colors
@@ -433,20 +433,22 @@ class Game:
         self.collect_if_item(player)
         return True
 
-    def apply_start_of_turn_effects(self):
-        """Drowning check: starting your turn on the same water tile as last turn."""
-        cur = self.players[self.current_player_index]
-        if cur.hp <= 0: return
-        ob = self.obstacle_at(cur.col, cur.row)
-        if isinstance(ob, Water):
-            if cur.last_water_pos == (cur.col, cur.row):
-                self.apply_damage(cur, 1)
-
     def end_of_turn_bookkeeping(self, finished_player: Player):
         ob = self.obstacle_at(finished_player.col, finished_player.row)
-        finished_player.last_water_pos = (finished_player.col, finished_player.row) if isinstance(ob, Water) else None
+        # Drowning check: ending your turn on the same water tile as last turn
+        if isinstance(ob, Water):
+            if finished_player.last_water_pos == (finished_player.col, finished_player.row):
+                self.apply_damage(finished_player, 1)
+            finished_player.last_water_pos = (finished_player.col, finished_player.row)
+        else:
+            finished_player.last_water_pos = None
         # clear any selected consumable
         finished_player.consumable_selected = None
+
+    def apply_start_of_turn_effects(self):
+        # No longer does drowning check; handled at end of turn
+        cur = self.players[self.current_player_index]
+        if cur.hp <= 0: return
 
     def advance_turn(self):
         finished = self.players[self.current_player_index]
@@ -798,7 +800,8 @@ class Game:
                 for idx in self.other_player_indices():
                     t = self.players[idx]
                     if (t.col, t.row) in fan:
-                        self.apply_damage(t, 1); hit_any = True
+                        self.apply_damage(t, 1)
+                        hit_any = True
                 self.advance_turn()
                 return
 
