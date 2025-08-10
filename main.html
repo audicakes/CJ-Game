@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Turn-Based Grid RPG – Move & Shoot Prototype</title>
+  <style>
+    :root {
+      --bg: #0b0f14;
+      --panel: #131a22;
+      --muted: #8aa0b5;
+      --accent: #5eead4;
+      --grid: #223042;
+      --p1: #ef4444; /* red */
+      --p1-light: #f87171;
+      --p2: #3b82f6; /* blue */
+      --p2-light: #60a5fa;
+      --greenHl: rgba(144, 238, 144, 0.28); /* light green */
+      --redHl: rgba(255, 99, 71, 0.28);     /* light red */
+      --hpFull: #22c55e;
+      --hpEmpty: #344657;
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Helvetica Neue, Arial;
+      background: radial-gradient(1200px 800px at 60% -20%, #1c2836 0%, var(--bg) 60%);
+      color: white;
+      display: grid;
+      place-items: center;
+      padding: 16px;
+    }
+    .app {
+      width: min(92vw, 980px);
+      background: linear-gradient(180deg, #111821, #0c1219);
+      border: 1px solid #1f2a37;
+      border-radius: 18px;
+      box-shadow: 0 10px 30px rgba(0,0,0,.35), inset 0 1px 0 rgba(255,255,255,.03);
+      overflow: hidden;
+    }
+    header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      background: #0f1620;
+      border-bottom: 1px solid #1e293b;
+    }
+    header .title { font-weight: 600; letter-spacing: .3px; }
+    header .subtitle { color: var(--muted); font-size: .9rem; }
+    .controls { display: flex; gap: 8px; align-items: center; }
+    button {
+      background: #121b27; color: #dbeafe; border: 1px solid #263446; border-radius: 10px;
+      padding: 8px 12px; font-weight: 600; cursor: pointer;
+    }
+    button:hover { background: #162232; border-color: #2f445d; }
+    .board-wrap { display: grid; grid-template-columns: 1fr 280px; }
+    .board-wrap.narrow { grid-template-columns: 1fr; }
+    #canvas { display: block; width: 100%; aspect-ratio: 11 / 8; background: #0b1118; outline: none; }
+    .sidebar { border-left: 1px solid #1f2a37; padding: 14px; background: #0f1620; }
+    .sidebar h3 { margin: 0 0 8px; font-size: 1rem; color: #e5e7eb; }
+    .panel { border: 1px solid #1f2a37; background: #0c131b; border-radius: 12px; padding: 12px; color: #cbd5e1; margin-bottom:12px; }
+    .legend { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .chip { display: inline-flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 999px; background: #0b1017; border: 1px solid #1e293b; }
+    .dot { width: 12px; height: 12px; border-radius: 999px; }
+    .kbd { display:inline-block; border:1px solid #334155; background:#0b1118; border-radius:6px; padding:2px 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.85rem; color:#cbd5e1; }
+    .hint { color: var(--muted); font-size: .9rem; }
+    .turn { color: var(--accent); font-weight: 700; }
+    .hpbar { display:flex; gap:6px; }
+    .pip { flex:1; height:10px; border-radius:6px; background: var(--hpEmpty); overflow:hidden; position:relative; }
+    .pip.fill { background: var(--hpFull); }
+    .mode { font-weight: 700; }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div>
+        <div class="title">Turn-Based Grid RPG – Move & Shoot</div>
+        <div class="subtitle">Arrows: face · Click: move/shoot · Space: toggle mode · 8 rows × 11 cols</div>
+      </div>
+      <div class="controls">
+        <button id="resetBtn" title="Reset positions">Reset</button>
+        <button id="randomizeBtn" title="Randomize positions">Randomize</button>
+      </div>
+    </header>
+
+    <div class="board-wrap" id="boardWrap">
+      <canvas id="canvas" tabindex="0"></canvas>
+      <aside class="sidebar" id="sidebar">
+        <div class="panel">
+          <h3>Turn</h3>
+          <div id="turnText" class="turn">Player 1</div>
+          <div>Mode: <span id="modeText" class="mode">MOVE</span></div>
+        </div>
+        <div class="panel">
+          <h3>Controls</h3>
+          <div class="hint">
+            <div><span class="kbd">←</span><span class="kbd">↑</span><span class="kbd">→</span><span class="kbd">↓</span> change facing.</div>
+            <div><span class="kbd">Space</span> toggles <strong>Move</strong>/<strong>Shoot</strong> mode.</div>
+            <div>Click highlighted tiles to act. Acting ends your turn.</div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Health</h3>
+          <div style="display:grid; grid-template-columns: 70px 1fr; gap:8px; align-items:center; margin-bottom:8px;">
+            <div style="display:flex; align-items:center; gap:8px;"><span class="dot" style="background:var(--p1)"></span> P1</div>
+            <div id="hp1" class="hpbar"></div>
+          </div>
+          <div style="display:grid; grid-template-columns: 70px 1fr; gap:8px; align-items:center;">
+            <div style="display:flex; align-items:center; gap:8px;"><span class="dot" style="background:var(--p2)"></span> P2</div>
+            <div id="hp2" class="hpbar"></div>
+          </div>
+        </div>
+        <div class="panel">
+          <h3>Legend</h3>
+          <div class="legend">
+            <span class="chip"><span class="dot" style="background:var(--p1)"></span>Player 1</span>
+            <span class="chip"><span class="dot" style="background:var(--p2)"></span>Player 2</span>
+            <span class="chip"><span class="dot" style="background:#22c55e"></span>Move tiles</span>
+            <span class="chip"><span class="dot" style="background:#f87171"></span>Shoot line</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+  <script>
+    // --- Config ---
+    const GRID_COLS = 11; // horizontal grid
+    const GRID_ROWS = 8;  // 8 rows
+    const MAX_HP = 3;
+
+    const DIRS = {
+      left:  {dc:-1, dr: 0},
+      right: {dc: 1, dr: 0},
+      up:    {dc: 0, dr:-1},
+      down:  {dc: 0, dr: 1},
+    };
+    const ARROW_TO_DIR = { ArrowLeft:'left', ArrowRight:'right', ArrowUp:'up', ArrowDown:'down' };
+
+    // --- State ---
+    const state = {
+      currentPlayer: 0, // 0 = P1, 1 = P2
+      mode: 'move',     // 'move' | 'shoot'
+      players: [
+        { id: 0, col: 1, row: 1, color: css('--p1'), light: css('--p1-light'), dir: 'right', hp: MAX_HP, blinkUntil: 0 },
+        { id: 1, col: GRID_COLS - 2, row: GRID_ROWS - 2, color: css('--p2'), light: css('--p2-light'), dir: 'left',  hp: MAX_HP, blinkUntil: 0 },
+      ],
+      gameOver: false,
+    };
+
+    // --- Setup ---
+    const canvas = document.getElementById('canvas');
+    const ctx = canvas.getContext('2d');
+    const turnText = document.getElementById('turnText');
+    const modeText = document.getElementById('modeText');
+    const resetBtn = document.getElementById('resetBtn');
+    const randomizeBtn = document.getElementById('randomizeBtn');
+    const boardWrap = document.getElementById('boardWrap');
+    const hp1 = document.getElementById('hp1');
+    const hp2 = document.getElementById('hp2');
+
+    function css(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
+
+    function resizeCanvas(){
+      const displaySize = canvas.getBoundingClientRect();
+      const dpr = window.devicePixelRatio || 1;
+      const width = displaySize.width;
+      const height = width * (GRID_ROWS/GRID_COLS);
+      canvas.style.width = `${width}px`;
+      canvas.style.height = `${height}px`;
+      canvas.width = Math.floor(width * dpr);
+      canvas.height = Math.floor(height * dpr);
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      draw();
+    }
+
+    function updateLayout(){
+      const wrapWidth = document.querySelector('.app').clientWidth;
+      boardWrap.classList.toggle('narrow', wrapWidth < 720);
+    }
+
+    window.addEventListener('resize', () => { updateLayout(); resizeCanvas(); });
+    updateLayout();
+
+    // --- Helpers ---
+    function inBounds(c,r){ return c>=0 && c<GRID_COLS && r>=0 && r<GRID_ROWS; }
+    function isOccupied(c,r){ return state.players.some(p => p.col===c && p.row===r); }
+    function getCurrent(){ return state.players[state.currentPlayer]; }
+    function getOther(){ return state.players[(state.currentPlayer+1)%2]; }
+
+    function switchTurn(){
+      state.currentPlayer = (state.currentPlayer + 1) % state.players.length;
+      state.mode = 'move';
+      updateHUD();
+      draw();
+    }
+
+    function updateHUD(){
+      turnText.textContent = state.currentPlayer === 0 ? 'Player 1' : 'Player 2';
+      modeText.textContent = state.mode.toUpperCase();
+      renderHP();
+    }
+
+    function renderHP(){
+      const bars = [hp1, hp2];
+      bars.forEach((el, idx) => {
+        el.innerHTML = '';
+        const hp = state.players[idx].hp;
+        for(let i=0;i<MAX_HP;i++){
+          const pip = document.createElement('div');
+          pip.className = 'pip' + (i < hp ? ' fill' : '');
+          el.appendChild(pip);
+        }
+      });
+    }
+
+    function tilesForMove(p){
+      const deltas = [[-1,0],[1,0],[0,-1],[0,1]];
+      const tiles = [];
+      deltas.forEach(([dc,dr]) => {
+        const c = p.col + dc, r = p.row + dr;
+        if(inBounds(c,r) && !isOccupied(c,r)) tiles.push([c,r]);
+      });
+      return tiles;
+    }
+
+    function tilesForShoot(p){
+      const {dc,dr} = DIRS[p.dir];
+      const tiles = [];
+      let c = p.col + dc, r = p.row + dr;
+      while(inBounds(c,r)){
+        tiles.push([c,r]);
+        c += dc; r += dr;
+      }
+      return tiles;
+    }
+
+    function damagePlayer(victim, amount=1){
+      victim.hp = Math.max(0, victim.hp - amount);
+      victim.blinkUntil = Date.now() + 800; // blink ~0.8s total
+      updateHUD();
+      if(victim.hp === 0){
+        state.gameOver = true;
+        modeText.textContent = `Player ${getCurrent().id+1} WINS!`;
+      }
+    }
+
+    // --- Input ---
+    window.addEventListener('keydown', (e) => {
+      if(state.gameOver) return;
+      const key = e.key;
+      if(ARROW_TO_DIR[key]){
+        e.preventDefault();
+        const p = getCurrent();
+        p.dir = ARROW_TO_DIR[key];
+        draw();
+        return;
+      }
+      if(key === ' '){
+        e.preventDefault();
+        state.mode = state.mode === 'move' ? 'shoot' : 'move';
+        updateHUD();
+        draw();
+      }
+    }, { passive: false });
+
+    canvas.addEventListener('click', (e) => {
+      if(state.gameOver) return;
+      const rect = canvas.getBoundingClientRect();
+      const cellW = rect.width / GRID_COLS;
+      const cellH = rect.height / GRID_ROWS;
+      const col = Math.floor((e.clientX - rect.left) / cellW);
+      const row = Math.floor((e.clientY - rect.top) / cellH);
+
+      const p = getCurrent();
+
+      if(state.mode === 'move'){
+        const moves = tilesForMove(p).map(([c,r])=>`${c},${r}`);
+        if(moves.includes(`${col},${row}`)){
+          p.col = col; p.row = row;
+          switchTurn();
+        }
+      } else {
+        // shoot mode – click anywhere on the red line to apply damage to all opponents on that line
+        const lineTiles = tilesForShoot(p);
+        const lineKeys = new Set(lineTiles.map(([c,r]) => `${c},${r}`));
+        if (lineKeys.has(`${col},${row}`)) {
+          state.players.forEach((target, idx) => {
+            if (idx !== state.currentPlayer && lineKeys.has(`${target.col},${target.row}`)) {
+              damagePlayer(target, 1);
+            }
+          });
+          switchTurn();
+        }
+      }
+    });
+
+    resetBtn.addEventListener('click', () => {
+      Object.assign(state.players[0], { col:1, row:1, dir:'right', hp:MAX_HP, blinkUntil:0 });
+      Object.assign(state.players[1], { col:GRID_COLS-2, row:GRID_ROWS-2, dir:'left', hp:MAX_HP, blinkUntil:0 });
+      state.currentPlayer = 0; state.mode = 'move'; state.gameOver = false;
+      updateHUD(); draw();
+    });
+
+    randomizeBtn.addEventListener('click', () => {
+      const used = new Set();
+      state.players.forEach(p => {
+        let k;
+        do {
+          p.col = Math.floor(Math.random()*GRID_COLS);
+          p.row = Math.floor(Math.random()*GRID_ROWS);
+          k = `${p.col},${p.row}`;
+        } while(used.has(k));
+        used.add(k);
+      });
+      state.players[0].dir = 'right';
+      state.players[1].dir = 'left';
+      state.players.forEach(p => { p.hp = MAX_HP; p.blinkUntil = 0; });
+      state.currentPlayer = 0; state.mode = 'move'; state.gameOver = false;
+      updateHUD(); draw();
+    });
+
+    // --- Rendering ---
+    function draw(){
+      const w = canvas.clientWidth;
+      const h = canvas.clientHeight;
+      canvas.width = w * (window.devicePixelRatio || 1);
+      canvas.height = h * (window.devicePixelRatio || 1);
+      ctx.setTransform(window.devicePixelRatio || 1, 0, 0, window.devicePixelRatio || 1, 0, 0);
+
+      // Background
+      ctx.fillStyle = '#0b1118';
+      ctx.fillRect(0,0,w,h);
+
+      // Grid
+      const cellW = w / GRID_COLS;
+      const cellH = h / GRID_ROWS;
+      ctx.strokeStyle = css('--grid');
+      ctx.lineWidth = 1;
+      for(let c=0;c<=GRID_COLS;c++){
+        const x = Math.floor(c * cellW) + 0.5;
+        ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, GRID_ROWS*cellH); ctx.stroke();
+      }
+      for(let r=0;r<=GRID_ROWS;r++){
+        const y = Math.floor(r * cellH) + 0.5;
+        ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(GRID_COLS*cellW, y); ctx.stroke();
+      }
+
+      // Highlights
+      const p = getCurrent();
+      if(state.mode === 'move'){
+        ctx.fillStyle = css('--greenHl');
+        tilesForMove(p).forEach(([c,r])=>{
+          ctx.fillRect(c*cellW+1, r*cellH+1, cellW-2, cellH-2);
+        });
+      } else {
+        ctx.fillStyle = css('--redHl');
+        tilesForShoot(p).forEach(([c,r])=>{
+          ctx.fillRect(c*cellW+1, r*cellH+1, cellW-2, cellH-2);
+        });
+      }
+
+      // Draw players
+      state.players.forEach((pl, idx) => {
+        const cx = (pl.col + 0.5) * cellW;
+        const cy = (pl.row + 0.5) * cellH;
+        const radius = Math.min(cellW, cellH) * 0.32;
+
+        // Halo for current player
+        if(idx === state.currentPlayer && !state.gameOver){
+          const grad = ctx.createRadialGradient(cx, cy, radius*0.5, cx, cy, radius*1.3);
+          grad.addColorStop(0, 'rgba(94,234,212,0.35)');
+          grad.addColorStop(1, 'rgba(94,234,212,0)');
+          ctx.fillStyle = grad;
+          ctx.beginPath(); ctx.arc(cx, cy, radius*1.4, 0, Math.PI*2); ctx.fill();
+        }
+
+        // Blink effect when hit (toggle, not fade)
+        const now = Date.now();
+        let tint = pl.color;
+        if (now < pl.blinkUntil) {
+          const phase = Math.floor(now / 120) % 2; // ~8 blinks/sec
+          tint = phase === 0 ? pl.light : pl.color;
+        }
+        ctx.fillStyle = tint;
+        ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI*2); ctx.fill();
+        ctx.strokeStyle = 'rgba(255,255,255,0.2)'; ctx.lineWidth = 2; ctx.stroke();
+
+        // Eyes indicating facing direction
+        drawEyes(cx, cy, radius, pl.dir);
+
+        // Small HP pips above the head
+        drawHeadHP(cx, cy - radius - 6, pl.hp, radius*0.35);
+      });
+
+      // keep redrawing while someone is blinking
+      const _now = Date.now();
+      if (state.players.some(pl => _now < pl.blinkUntil)) {
+        requestAnimationFrame(draw);
+      }
+
+      if(state.gameOver){
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0,0,w,h);
+        ctx.fillStyle = '#e5e7eb';
+        ctx.font = 'bold 28px ui-sans-serif, system-ui';
+        ctx.textAlign = 'center';
+        ctx.fillText(`Player ${state.currentPlayer===0?2:1} wins!`, w/2, h/2);
+      }
+    }
+
+    function drawEyes(cx, cy, r, dir){
+      const eyeOffset = r*0.35; // lateral spacing
+      const forward = r*0.35;   // forward offset for pupils
+      // Base eye positions (left/right of center)
+      let ex1 = cx - eyeOffset, ey1 = cy;
+      let ex2 = cx + eyeOffset, ey2 = cy;
+
+      // Shift eyes slightly toward facing direction
+      if(dir==='left'){ ex1 -= forward; ex2 -= forward; }
+      if(dir==='right'){ ex1 += forward; ex2 += forward; }
+      if(dir==='up'){ ey1 -= forward; ey2 -= forward; }
+      if(dir==='down'){ ey1 += forward; ey2 += forward; }
+
+      const eyeR = r*0.12;
+      ctx.fillStyle = '#fff';
+      ctx.beginPath(); ctx.arc(ex1, ey1, eyeR, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(ex2, ey2, eyeR, 0, Math.PI*2); ctx.fill();
+
+      // Pupils a bit farther in the facing direction
+      const pupShift = r*0.08;
+      let px1 = ex1, py1 = ey1, px2 = ex2, py2 = ey2;
+      if(dir==='left'){ px1 -= pupShift; px2 -= pupShift; }
+      if(dir==='right'){ px1 += pupShift; px2 += pupShift; }
+      if(dir==='up'){ py1 -= pupShift; py2 -= pupShift; }
+      if(dir==='down'){ py1 += pupShift; py2 += pupShift; }
+
+      const pupR = r*0.06;
+      ctx.fillStyle = '#0b1118';
+      ctx.beginPath(); ctx.arc(px1, py1, pupR, 0, Math.PI*2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px2, py2, pupR, 0, Math.PI*2); ctx.fill();
+    }
+
+    function drawHeadHP(x, y, hp, width){
+      const gap = 4; const height = 6; const count = MAX_HP;
+      const totalWidth = count*width + (count-1)*gap;
+      let startX = x - totalWidth/2;
+      for(let i=0;i<count;i++){
+        ctx.fillStyle = i < hp ? css('--hpFull') : css('--hpEmpty');
+        ctx.fillRect(startX, y, width, height);
+        startX += width + gap;
+      }
+    }
+
+    // Init
+    updateHUD();
+    resizeCanvas();
+    new ResizeObserver(resizeCanvas).observe(canvas);
+    // Focus so first arrow key registers immediately
+    canvas.focus();
+    canvas.addEventListener('mouseenter', () => canvas.focus());
+  </script>
+</body>
+</html>
