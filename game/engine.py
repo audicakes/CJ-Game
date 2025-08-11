@@ -202,26 +202,35 @@ def _shotgun_tiles(st, p):
             out.add((tc, tr))
     return sorted(out)
 
-def _deagle_tiles_ignore_walls(st, p):
-    rng = DEAGLE_BASE_RANGE_TILES + (1 if p["has_scope"] else 0)
-    dc, dr = DIRECTIONS[p["facing"]]
-    out = []; c, r = p["col"]+dc, p["row"]+dr
-    for _ in range(rng):
-        if not _in_bounds(c, r): break
-        out.append((c, r)); c += dc; r += dr
-    return out
+def weapon_tiles_ignore_walls(st, p, pattern, range_or_depth, width=1):
+    """
+    Generalized tile generator for weapons that ignore walls.
 
-def _shotgun_tiles_ignore_walls(st, p):
-    depth = SHOTGUN_BASE_DEPTH + (1 if p["has_scope"] else 0)
+    pattern: 'line' or 'fan'
+    range_or_depth: int, max tiles forward
+    width: for 'fan', how many tiles wide at each depth (odd number, e.g., 3)
+    """
+    tiles = []
     dc, dr = DIRECTIONS[p["facing"]]
-    horiz = p["facing"] in ("left","right"); pc, pr = (0,1) if horiz else (1,0)
-    out = set()
-    for d in range(1, depth+1):
-        for side in (-1,0,1):
-            tc = p["col"] + dc*d + pc*side
-            tr = p["row"] + dr*d + pr*side
-            if _in_bounds(tc, tr): out.add((tc, tr))
-    return sorted(out)
+    if pattern == "line":
+        c, r = p["col"] + dc, p["row"] + dr
+        for _ in range(range_or_depth):
+            if not _in_bounds(c, r):
+                break
+            tiles.append((c, r))
+            c += dc
+            r += dr
+    elif pattern == "fan":
+        half_span = (width - 1) // 2
+        horizontal = p["facing"] in ("left", "right")
+        pc, pr = (0, 1) if horizontal else (1, 0)
+        for d in range(1, range_or_depth + 1):
+            for side in range(-half_span, half_span + 1):
+                tc = p["col"] + dc * d + pc * side
+                tr = p["row"] + dr * d + pr * side
+                if _in_bounds(tc, tr):
+                    tiles.append((tc, tr))
+    return tiles
 
 def _grenade_tiles(st, p):
     if not (p["grenade_count"] > 0 and p["consumable_selected"] == "Grenade"):
@@ -466,7 +475,8 @@ def apply_move(game, move):
 
     if t == "shoot" and you["has_deagle"]:
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
-        tiles = _deagle_tiles_ignore_walls(st, you) if pierce else _deagle_tiles(st, you)
+        tiles = weapon_tiles_ignore_walls(st, p, "line", DEAGLE_BASE_RANGE_TILES + (1 if p["has_scope"] else 0))
+
 
         victims = []
         for c, r in tiles:
@@ -496,7 +506,7 @@ def apply_move(game, move):
 
     if t == "shotgun" and you["has_shotgun"]:
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
-        fan = set(_shotgun_tiles_ignore_walls(st, you) if pierce else _shotgun_tiles(st, you))
+        fan = set(weapon_tiles_ignore_walls(st, p, "fan", SHOTGUN_BASE_DEPTH + (1 if p["has_scope"] else 0), width=3))
 
         victims = []
         for name, a in st["actors"].items():
