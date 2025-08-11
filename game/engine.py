@@ -52,20 +52,44 @@ def _item_at(st, c, r):
             return it
     return None
 
+def _dist(a, b):
+    # Chebyshev distance fits grid movement well; you could use Manhattan if you prefer.
+    return max(abs(a[0]-b[0]), abs(a[1]-b[1]))
+
 def _spawn_position(st):
-    ti = st["theme_index"]
-    col = min(ti * 2, GRID_COLUMNS - 1)
-    row = min(ti * 2, GRID_ROWS - 1)
-    if not _occupied(st, col, row):
-        return col, row
-    # search nearest free
-    for radius in range(1, max(GRID_COLUMNS, GRID_ROWS)):
-        for dc in range(-radius, radius+1):
-            for dr in range(-radius, radius+1):
-                c, r = col+dc, row+dr
-                if _in_bounds(c,r) and not _occupied(st, c, r):
-                    return c, r
-    return 0, 0
+    """Pick the empty, non-wall tile with the largest min distance to all actors."""
+    occupied = {(a["col"], a["row"]) for a in st["actors"].values() if a["hp"] > 0}
+    walls = {(ob["col"], ob["row"]) for ob in st["obstacles"] if ob["type"] == "wall"}
+
+    # Precompute existing actor positions
+    others = [(a["col"], a["row"]) for a in st["actors"].values() if a["hp"] > 0]
+
+    best_pos = None
+    best_score = -1
+
+    for r in range(GRID_ROWS):
+        for c in range(GRID_COLUMNS):
+            pos = (c, r)
+            if pos in occupied or pos in walls:
+                continue
+
+            if others:
+                mind = min(_dist(pos, o) for o in others)
+            else:
+                mind = 999  # first player can take any spot
+
+            # Small tie-breakers so we avoid edges/walls even if distance ties
+            near_wall = 1 if any((c+dc, r+dr) in walls for dc,dr in [(-1,0),(1,0),(0,-1),(0,1)]) else 0
+            edge_penalty = 1 if (c in (0, GRID_COLUMNS-1) or r in (0, GRID_ROWS-1)) else 0
+
+            score = (mind * 10) - (near_wall * 2) - (edge_penalty * 1)
+
+            if score > best_score:
+                best_score = score
+                best_pos = pos
+
+    return best_pos or (0, 0)
+
 
 def _gen_level(st, num_players):
     st["obstacles"].clear()
@@ -126,7 +150,9 @@ def join(game, name):
         "has_deagle": False, "has_shotgun": False,
         "has_agility_boots": False, "has_scope": False, "has_shield": False,
         "has_grenade": False, "grenade_count": 0, "consumable_selected": None,
-        "last_water_pos": None,
+        "last_water_pos": None, "has_piercing": False, "piercing_count": 0,
+        "has_lucky_clover": False,
+
     }
     g["players"].append(name)
     _gen_level(st, max(2, len(g["players"])))
@@ -176,6 +202,27 @@ def _shotgun_tiles(st, p):
             out.add((tc, tr))
     return sorted(out)
 
+def _deagle_tiles_ignore_walls(st, p):
+    rng = DEAGLE_BASE_RANGE_TILES + (1 if p["has_scope"] else 0)
+    dc, dr = DIRECTIONS[p["facing"]]
+    out = []; c, r = p["col"]+dc, p["row"]+dr
+    for _ in range(rng):
+        if not _in_bounds(c, r): break
+        out.append((c, r)); c += dc; r += dr
+    return out
+
+def _shotgun_tiles_ignore_walls(st, p):
+    depth = SHOTGUN_BASE_DEPTH + (1 if p["has_scope"] else 0)
+    dc, dr = DIRECTIONS[p["facing"]]
+    horiz = p["facing"] in ("left","right"); pc, pr = (0,1) if horiz else (1,0)
+    out = set()
+    for d in range(1, depth+1):
+        for side in (-1,0,1):
+            tc = p["col"] + dc*d + pc*side
+            tr = p["row"] + dr*d + pr*side
+            if _in_bounds(tc, tr): out.add((tc, tr))
+    return sorted(out)
+
 def _grenade_tiles(st, p):
     if not (p["grenade_count"] > 0 and p["consumable_selected"] == "Grenade"):
         return []
@@ -190,6 +237,15 @@ def _grenade_tiles(st, p):
             if _in_bounds(c, r):
                 out.append((c, r))
     return out
+
+def _maybe_clover_bonus(st, attacker_name, victims):
+    atk = st["actors"].get(attacker_name)
+    if not atk or not atk.get("has_lucky_clover") or not victims:
+        return
+    # 50% chance to add +1 to exactly one victim of THIS shot
+    if random.random() < 0.5:
+        _apply_damage(st, random.choice(victims), 1)
+        atk["has_lucky_clover"] = False  # consumed when it procs
 
 # ---------- pickups ----------
 def _pickup_if_item(st, p):
@@ -209,6 +265,9 @@ def _pickup_if_item(st, p):
         if not p["has_scope"]:         picks.append("scope")
         if not p["has_shield"]:        picks.append("shield")
         if not p["has_grenade"]:       picks.append("grenade")
+        if not p["has_piercing"]:      picks.append("piercing")
+        if not p["has_lucky_clover"]:  picks.append("clover")
+
         if not picks:
             consumed = False
         else:
@@ -219,6 +278,11 @@ def _pickup_if_item(st, p):
             elif give == "grenade":
                 p["has_grenade"] = True
                 p["grenade_count"] = max(p["grenade_count"], 0) + 1
+            elif give == "piercing":
+                p["has_piercing"] = True
+                p["piercing_count"] = max(p["piercing_count"], 0) + 1
+            elif give == "clover":
+                p["has_lucky_clover"] = True
     if consumed:
         st["items"] = [x for x in st["items"] if not (x["col"] == it["col"] and x["row"] == it["row"])]
 
@@ -267,17 +331,45 @@ def _advance_turn(g):
 def _restart(g):
     st = g["state"]
     st["game_over"] = False
-    # reset actors & reposition
-    for name, a in st["actors"].items():
+    # Reset stats/inventory
+    for a in st["actors"].values():
         a.update({
             "hp": MAX_HP,
             "has_deagle": False, "has_shotgun": False,
             "has_agility_boots": False, "has_scope": False, "has_shield": False,
-            "has_grenade": False, "grenade_count": 0,
+            "has_grenade": False, "grenade_count": 0, "has_piercing": False, "piercing_count": 0,
             "consumable_selected": None, "last_water_pos": None, "facing": "right",
+            "has_piercing": False, "piercing_count": 0, "has_lucky_clover": False,
         })
-        a["col"], a["row"] = _spawn_position(st)
-    _gen_level(st, max(2, len(g["players"])))
+    # Greedy farthest placement for all current players
+    names = list(g["players"])
+    # Clear positions temporarily
+    for a in st["actors"].values():
+        a["col"], a["row"] = -999, -999
+    placed = []
+    walls = {(ob["col"], ob["row"]) for ob in st["obstacles"] if ob["type"] == "wall"}
+    def best_spot():
+        best = None; best_score = -1
+        for r in range(GRID_ROWS):
+            for c in range(GRID_COLUMNS):
+                pos = (c, r)
+                if pos in walls or pos in placed:
+                    continue
+                # distance to already placed actors (use large if none placed yet)
+                mind = min((_dist(pos, p) for p in placed), default=999)
+                # tie-breakers
+                near_wall = 1 if any((c+dc, r+dr) in walls for dc,dr in [(-1,0),(1,0),(0,-1),(0,1)]) else 0
+                edge_penalty = 1 if (c in (0, GRID_COLUMNS-1) or r in (0, GRID_ROWS-1)) else 0
+                score = (mind * 10) - (near_wall * 2) - (edge_penalty * 1)
+                if score > best_score:
+                    best_score = score; best = pos
+        return best
+    for name in names:
+        pos = best_spot() or (0, 0)
+        st["actors"][name]["col"], st["actors"][name]["row"] = pos
+        placed.append(pos)
+    # Regenerate obstacles/items fresh for this player count
+    _gen_level(st, max(2, len(names)))
     g["turn"] = 0
 
 # ---------- Public API ----------
@@ -366,28 +458,68 @@ def apply_move(game, move):
         if you["has_grenade"] and you["grenade_count"] > 0:
             you["consumable_selected"] = None if you["consumable_selected"] == "Grenade" else "Grenade"
         return g
+    
+    if t == "toggle_piercing":
+        if you["has_piercing"] and you["piercing_count"] > 0:
+            you["consumable_selected"] = None if you["consumable_selected"] == "Piercing" else "Piercing"
+        return g
 
     if t == "shoot" and you["has_deagle"]:
-        for c, r in _deagle_tiles(st, you):
+        pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
+        tiles = _deagle_tiles_ignore_walls(st, you) if pierce else _deagle_tiles(st, you)
+
+        victims = []
+        for c, r in tiles:
             for name, a in st["actors"].items():
-                if name == cur or a["hp"] <= 0:
-                    continue
+                if name == cur or a["hp"] <= 0: continue
                 if a["col"] == c and a["row"] == r:
-                    _apply_damage(st, name, 1)
-                    _advance_turn(g)
-                    return g
+                    victims.append(name)
+            if victims and not pierce:  # normal shot stops at first victim
+                break
+
+        for v in victims:
+            _apply_damage(st, v, 1)
+
+        _maybe_clover_bonus(st, cur, victims)
+
+        if pierce:
+            you["piercing_count"] -= 1
+            if you["piercing_count"] <= 0:
+                you["has_piercing"] = False
+                if you["consumable_selected"] == "Piercing": you["consumable_selected"] = None
+            else:
+                # keep selected if charges remain
+                you["consumable_selected"] = "Piercing"
+
         _advance_turn(g)
         return g
 
     if t == "shotgun" and you["has_shotgun"]:
-        fan = set(_shotgun_tiles(st, you))
+        pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
+        fan = set(_shotgun_tiles_ignore_walls(st, you) if pierce else _shotgun_tiles(st, you))
+
+        victims = []
         for name, a in st["actors"].items():
-            if name == cur or a["hp"] <= 0:
-                continue
+            if name == cur or a["hp"] <= 0: continue
             if (a["col"], a["row"]) in fan:
-                _apply_damage(st, name, 1)
+                victims.append(name)
+
+        for v in victims:
+            _apply_damage(st, v, 1)
+
+        _maybe_clover_bonus(st, cur, victims)
+
+        if pierce:
+            you["piercing_count"] -= 1
+            if you["piercing_count"] <= 0:
+                you["has_piercing"] = False
+                if you["consumable_selected"] == "Piercing": you["consumable_selected"] = None
+            else:
+                you["consumable_selected"] = "Piercing"
+
         _advance_turn(g)
         return g
+
 
     if t == "throw_grenade" and you["grenade_count"] > 0 and you["consumable_selected"] == "Grenade":
         tgt = move.get("target") or {}
