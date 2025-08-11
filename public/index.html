@@ -4,114 +4,276 @@
   <meta charset="utf-8" />
   <title>CJ Game (Browser)</title>
   <style>
-    body { background:#0b1118; color:#e7edf5; font-family: ui-sans-serif, system-ui; margin:20px; }
-    label { margin-right:12px }
-    input, button { font-size: 16px; }
-    #panel { margin:10px 0 6px }
-    #hud { margin-top:6px; }
-    canvas { background:#0f1620; display:block; margin-top:10px; border:1px solid #263446; }
-    #inv { margin-top:8px; }
-    .inv-item { display:inline-block; padding:4px 8px; margin:2px 6px 0 0; border:1px solid #2a3a4f; border-radius:6px; cursor:pointer; }
-    .inv-item.sel { background:#1b2838; border-color:#3b5a7f; }
-    .muted { color:#9ab; }
+    :root {
+      --bg:#0b1118; --panel:#0f1620; --hud:#101a28; --muted:#9ab; --line:#223042;
+      --accent:#3bd; --inv:#1b2838; --inv-border:#3b5a7f; --border:#263446;
+      --green: rgba(144,238,144,.55);
+      --red: rgba(255,99,71,.55);
+    }
+    body { background:var(--bg); color:#e7edf5; font-family: ui-sans-serif, system-ui; margin:16px; }
+    .top { display:flex; gap:12px; align-items:center; margin-bottom:10px; }
+    label { margin-right:10px }
+    input, button { font-size:16px; }
+    .wrap { display:flex; gap:16px; align-items:flex-start; }
+    #left { background:var(--panel); border:1px solid var(--border); }
+    #hudbar { background:var(--hud); padding:8px 12px; border-bottom:1px solid var(--border); }
+    canvas { display:block; }
+    #sidebar { width:260px; border:1px solid var(--border); background:#0f1620; padding:12px; border-radius:6px; }
+    .muted { color:var(--muted); }
+    .hp { display:flex; gap:6px; margin:6px 0 8px; }
+    .pip { width:22px; height:12px; border-radius:4px; background:#345; }
+    .pip.on { background:#22c55e; }
+    .playerCard { padding:10px; border-radius:8px; border:1px solid #1e2b3b; margin-bottom:10px; }
+    .playerHeader { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+    .invPill { display:inline-block; padding:4px 8px; margin:4px 6px 0 0; border:1px solid #2a3a4f; border-radius:6px; cursor:pointer; }
+    .invPill.sel { background:var(--inv); border-color:var(--inv-border); }
+    .turnTag { font-size:12px; padding:2px 6px; border-radius:999px; background:#13202f; border:1px solid #244; }
   </style>
 </head>
 <body>
   <h1>CJ Game (Browser)</h1>
 
-  <div id="panel">
+  <div class="top">
     <label>Room <input id="room" value="alpha" /></label>
     <label>Name <input id="name" value="Player" /></label>
     <button id="joinBtn">Join</button>
     <button id="endBtn" disabled>End Turn</button>
+    <span class="muted">Left Click: face · Arrows: move · Right Click: shoot/throw</span>
   </div>
 
-  <div id="hud" class="muted">Left Click: face | Arrows: move | Right Click: shoot/throw (if valid)</div>
-  <div id="turnInfo"></div>
-  <div id="inv"></div>
+  <div class="wrap">
+    <div id="left">
+      <div id="hudbar"><b id="turnText">Turn: —</b></div>
+      <canvas id="cv" width="900" height="650"></canvas>
+    </div>
 
-  <canvas id="cv" width="900" height="650"></canvas>
+    <div id="sidebar">
+      <h3 style="margin:0 0 8px">Status</h3>
+      <div id="players"></div>
+      <hr style="border:0;border-top:1px solid #1e2b3b; margin:10px 0">
+      <div id="myInv"><span class="muted">Join a room to see your items.</span></div>
+    </div>
+  </div>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
-    // connect to same origin (works locally and on Render)
+    // === Connection/state ===
     const socket = io({ withCredentials:false });
-
-    const cv = document.getElementById('cv');
-    const ctx = cv.getContext('2d');
-    const joinBtn = document.getElementById('joinBtn');
-    const endBtn = document.getElementById('endBtn');
-    const inv = document.getElementById('inv');
-    const turnInfo = document.getElementById('turnInfo');
+    const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
+    const joinBtn = document.getElementById('joinBtn'); const endBtn = document.getElementById('endBtn');
+    const playersBox = document.getElementById('players'); const myInvBox = document.getElementById('myInv');
+    const turnText = document.getElementById('turnText');
 
     const me = { room:null, name:null, id:null };
-    let gs = null;           // server state
-    let hoverCell = null;    // mouse hover cell
+    let gs = null;       // server game object
+    let hoverCell = null;
 
     const CELL = 48, HUD = 40;
 
-    socket.on('connect', () => { me.id = socket.id; });
-    socket.on('state', (state) => { gs = state; render(); updateUI(); });
+    socket.on('connect', ()=>{ me.id = socket.id; });
+    socket.on('state', (state)=>{ gs = state; render(); buildSidebar(); updateUI(); });
 
-    joinBtn.onclick = () => {
-      me.room = document.getElementById('room').value.trim() || 'alpha';
-      me.name = document.getElementById('name').value.trim() || 'Player';
+    joinBtn.onclick = ()=>{
+      me.room = (document.getElementById('room').value||'alpha').trim();
+      me.name = (document.getElementById('name').value||'Player').trim();
       socket.emit('join', { room: me.room, name: me.name });
     };
-    endBtn.onclick = () => {
-      if(!isMyTurn()) return;
-      socket.emit('move', { room: me.room, move:{ type:'end_turn', who:me.name } });
-    };
+    endBtn.onclick = ()=>{ if(isMyTurn()) socket.emit('move', { room: me.room, move:{ type:'end_turn', who:me.name } }); };
 
-    cv.addEventListener('mousemove', (e) => { hoverCell = gridFromEvent(e); render(); });
-    cv.addEventListener('contextmenu', (e) => e.preventDefault()); // enable right-click actions
-    cv.addEventListener('click', (e) => {
-      if(!gs || !isJoined()) return;
-      const p = gridFromEvent(e);
-      if(!p || !isMyTurn()) return;
-      const my = gs.state.actors[me.name];
+    cv.addEventListener('mousemove', e => { hoverCell = gridFromEvent(e); render(); });
+    cv.addEventListener('contextmenu', e => e.preventDefault()); // allow right-click actions
+    cv.addEventListener('click', e => {
+      if(!gs || !isMyTurn()) return;
+      const p = gridFromEvent(e); if(!p) return;
+      const my = gs.state.actors[me.name]; if(!my) return;
       const dx = p.col - my.col, dy = p.row - my.row;
       if(dx || dy){
         const dir = Math.abs(dx) >= Math.abs(dy) ? (dx>0?'right':'left') : (dy>0?'down':'up');
         socket.emit('move', { room: me.room, move:{ type:'face', who:me.name, dir } });
       }
     });
-    // right-click: shoot / grenade / shotgun
-    cv.addEventListener('mousedown', (e) => {
-      if(e.button !== 2) return; // right click
-      if(!gs || !isJoined() || !isMyTurn()) return;
+    cv.addEventListener('mousedown', e => {
+      if(e.button !== 2 || !gs || !isMyTurn()) return;
       const p = gridFromEvent(e); if(!p) return;
       const you = gs.state.actors[me.name];
-      // grenade selected?
       if(you.consumable_selected === 'Grenade' && you.grenade_count > 0){
         socket.emit('move', { room: me.room, move:{ type:'throw_grenade', who: me.name, target:{ col:p.col, row:p.row } } });
-        return;
-      }
-      // otherwise: if you have deagle, try shoot; else try shotgun
-      if(you.has_deagle){
+      } else if (you.has_deagle){
         socket.emit('move', { room: me.room, move:{ type:'shoot', who: me.name } });
-      }else if(you.has_shotgun){
+      } else if (you.has_shotgun){
         socket.emit('move', { room: me.room, move:{ type:'shotgun', who: me.name } });
       }
     });
-
-    window.addEventListener('keydown', (e) => {
-      if(!isJoined() || !isMyTurn()) return;
-      const key = e.key;
-      const dir = (key==='ArrowLeft'?'left':key==='ArrowRight'?'right':key==='ArrowUp'?'up':key==='ArrowDown'?'down':null);
+    window.addEventListener('keydown', e=>{
+      if(!isMyTurn()) return;
+      const k = e.key;
+      const dir = (k==='ArrowLeft'?'left':k==='ArrowRight'?'right':k==='ArrowUp'?'up':k==='ArrowDown'?'down':null);
       if(!dir) return;
       e.preventDefault();
       socket.emit('move', { room: me.room, move:{ type:'step', who: me.name, dir } });
     });
 
-    function isJoined(){ return !!(me.room && me.name); }
-    function isMyTurn(){
-      if(!gs || !me.name) return false;
-      const players = gs.players || [];
-      if(!players.length) return false;
-      return players[gs.turn % players.length] === me.name;
+    // === Helpers mirroring server rules (for highlights/UI only) ===
+    const DIRS = { left:[-1,0], right:[1,0], up:[0,-1], down:[0,1] };
+    function inBounds(c,r){ return c>=0 && r>=0 && c<gs.state.grid.cols && r<gs.state.grid.rows; }
+    function obAt(c,r){ return (gs.state.obstacles||[]).find(o=>o.col===c && o.row===r) || null; }
+    function occupied(c,r, exceptName){
+      for(const [n,a] of Object.entries(gs.state.actors||{})){
+        if(n===exceptName) continue;
+        if(a.hp>0 && a.col===c && a.row===r) return true;
+      }
+      return false;
+    }
+    function moveTiles(p){
+      const tiles=[];
+      for(const [dc,dr] of [[-1,0],[1,0],[0,-1],[0,1]]){
+        const c1=p.col+dc, r1=p.row+dr;
+        if(inBounds(c1,r1) && !occupied(c1,r1,p.name)){
+          const o1 = obAt(c1,r1);
+          if(!(o1 && o1.type==='wall')){
+            tiles.push([c1,r1]);
+            if(p.has_agility_boots){
+              const c2=c1+dc, r2=r1+dr;
+              if(inBounds(c2,r2) && !occupied(c2,r2,p.name)){
+                const o2 = obAt(c2,r2);
+                if(!(o2 && o2.type==='wall')) tiles.push([c2,r2]);
+              }
+            }
+          }
+        }
+      }
+      return tiles;
+    }
+    function deagleTiles(p){
+      if(!p.has_deagle) return [];
+      const rng = 4 + (p.has_scope?1:0);
+      const [dc,dr] = DIRS[p.facing];
+      const out=[];
+      let c=p.col+dc, r=p.row+dr, steps=0;
+      while(inBounds(c,r) && steps<rng){
+        out.push([c,r]); steps++;
+        const o = obAt(c,r); if(o && o.type==='wall') break;
+        c+=dc; r+=dr;
+      }
+      return out;
+    }
+    function shotgunTiles(p){
+      if(!p.has_shotgun) return [];
+      const depth = 2 + (p.has_scope?1:0);
+      const out=new Set();
+      const [dc,dr]=DIRS[p.facing];
+      const horizontal = (p.facing==='left'||p.facing==='right');
+      const pc = horizontal?0:1, pr = horizontal?1:0;
+      const blocked = new Map([[-1,false],[0,false],[1,false]]);
+      for(let d=1; d<=depth; d++){
+        for(const side of [-1,0,1]){
+          if(blocked.get(side)) continue;
+          const tc=p.col+dc*d+pc*side, tr=p.row+dr*d+pr*side;
+          if(!inBounds(tc,tr)) continue;
+          // wall check along that mini-ray
+          let w=false;
+          for(let s=1; s<=d; s++){
+            const cc=p.col+dc*s+pc*side, rr=p.row+dr*s+pr*side;
+            const o=obAt(cc,rr); if(o && o.type==='wall'){ w=true; break; }
+          }
+          if(w){ blocked.set(side,true); continue; }
+          out.add(tc+','+tr);
+        }
+      }
+      return [...out].map(s=>s.split(',').map(Number));
+    }
+    function grenadeTiles(p){
+      if(!(p.consumable_selected==='Grenade' && p.grenade_count>0)) return [];
+      const [dc,dr]=DIRS[p.facing];
+      const horizontal = (p.facing==='left'||p.facing==='right');
+      const pc = horizontal?0:1, pr = horizontal?1:0;
+      const out=[];
+      for(let d=1; d<=3; d++){
+        for(const side of [-1,0,1]){
+          const c=p.col+dc*d+pc*side, r=p.row+dr*d+pr*side;
+          if(inBounds(c,r)) out.push([c,r]);
+        }
+      }
+      return out;
     }
 
+    // === Sidebar ===
+    function buildSidebar(){
+      if(!gs){ playersBox.innerHTML=''; myInvBox.innerHTML='<span class="muted">Join a room to see your items.</span>'; return; }
+
+      const players = gs.players||[];
+      const turnName = players.length ? players[gs.turn % players.length] : null;
+      turnText.textContent = 'Turn: ' + (turnName||'—');
+
+      // Players list (HP + small inventory)
+      playersBox.innerHTML='';
+      for(const name of players){
+        const a = gs.state.actors[name];
+        const card = document.createElement('div'); card.className='playerCard';
+        const head = document.createElement('div'); head.className='playerHeader';
+        const left = document.createElement('div'); left.textContent = name;
+        const right = document.createElement('div'); right.className='turnTag'; right.textContent = (name===turnName)?'Your Turn':'';
+        head.append(left, right);
+        const hp = document.createElement('div'); hp.className='hp';
+        for(let i=0;i<3;i++){
+          const pip = document.createElement('div'); pip.className='pip'+(i<a.hp?' on':'');
+          hp.appendChild(pip);
+        }
+        const inv = document.createElement('div');
+        const labels=[];
+        if(a.has_deagle) labels.push('Deagle');
+        if(a.has_shotgun) labels.push('Shotgun');
+        if(a.has_agility_boots) labels.push('Agility Boots');
+        if(a.has_scope) labels.push('Scope');
+        if(a.has_shield) labels.push('Shield');
+        if(a.has_grenade && a.grenade_count>0) labels.push(`Grenade (${a.grenade_count})`);
+        inv.innerHTML = labels.length?('<span class="muted">Items: </span>'+labels.join(', ')):'<span class="muted">No items</span>';
+
+        card.append(head, hp, inv);
+        playersBox.appendChild(card);
+      }
+
+      // My inventory (interactive)
+      if(me.name && gs.state.actors[me.name]){
+        const p = gs.state.actors[me.name];
+        myInvBox.innerHTML='';
+        const add = (key, label, selected=false)=>{
+          const pill = document.createElement('span');
+          pill.className = 'invPill'+(selected?' sel':'');
+          pill.textContent = label;
+          pill.onclick = ()=>{
+            if(key==='Grenade'){
+              socket.emit('move', { room: me.room, move:{ type:'toggle_grenade', who: me.name } });
+            }
+          };
+          myInvBox.appendChild(pill);
+        };
+        if(p.has_deagle) add('Deagle','Deagle');
+        if(p.has_shotgun) add('Shotgun','Shotgun');
+        if(p.has_agility_boots) add('Boots','Agility Boots');
+        if(p.has_scope) add('Scope','Scope');
+        if(p.has_shield) add('Shield','Shield');
+        if(p.has_grenade && p.grenade_count>0) add('Grenade',`Grenade (${p.grenade_count})`, p.consumable_selected==='Grenade');
+      } else {
+        myInvBox.innerHTML='<span class="muted">Join a room to see your items.</span>';
+      }
+
+      endBtn.disabled = !isMyTurn();
+    }
+
+    function updateUI(){
+      // just keep end-button + turn text in sync (rest done in buildSidebar)
+      if(!gs){ endBtn.disabled = true; turnText.textContent='Turn: —'; return; }
+      const players = gs.players||[];
+      turnText.textContent = 'Turn: ' + (players.length ? players[gs.turn % players.length] : '—');
+      endBtn.disabled = !isMyTurn();
+    }
+
+    function isMyTurn(){
+      if(!gs || !me.name) return false;
+      const players = gs.players||[]; if(!players.length) return false;
+      return players[gs.turn % players.length] === me.name;
+    }
     function gridFromEvent(ev){
       if(!gs) return null;
       const rect = cv.getBoundingClientRect();
@@ -120,122 +282,94 @@
       if(y < HUD) return null;
       const col = Math.floor(x / CELL);
       const row = Math.floor((y - HUD) / CELL);
-      if(col < 0 || col >= cols || row < 0 || row >= rows) return null;
+      if(col<0||row<0||col>=cols||row>=rows) return null;
       return { col, row };
     }
 
-        function updateUI(){
-      if(!gs){ endBtn.disabled = true; inv.innerHTML=''; turnInfo.textContent=''; return; }
-      const players = gs.players || [];
-      const cur = players.length ? players[gs.turn % players.length] : '—';
-      turnInfo.textContent = `Turn: ${cur}`;
-      endBtn.disabled = !isMyTurn();
-
-      // inventory pills (click "Grenade" to toggle)
-      inv.innerHTML = '';
-      if (me.name && gs.state?.actors?.[me.name]) {
-        const p = gs.state.actors[me.name];
-        const add = (key, label, selected) => {
-          const el = document.createElement('span');
-          el.className = 'inv-item' + (selected ? ' sel' : '');
-          el.textContent = label;
-          el.onclick = () => {
-            if (key === 'Grenade') {
-              socket.emit('move', { room: me.room, move: { type:'toggle_grenade', who: me.name }});
-            }
-          };
-          inv.appendChild(el);
-        };
-        if (p.has_deagle)  add('Deagle',  'Deagle',  false);
-        if (p.has_shotgun) add('Shotgun', 'Shotgun', false);
-        if (p.has_agility_boots) add('Boots', 'Agility Boots', false);
-        if (p.has_scope)   add('Scope',   'Scope', false);
-        if (p.has_shield)  add('Shield',  'Shield', false);
-        if (p.has_grenade && p.grenade_count > 0)
-          add('Grenade', `Grenade (${p.grenade_count})`, p.consumable_selected === 'Grenade');
-      }
-    }
-
+    // === Rendering ===
     function render(){
       ctx.clearRect(0,0,cv.width,cv.height);
       if(!gs) return;
+      const cols=gs.state.grid.cols, rows=gs.state.grid.rows;
+      const w=cols*CELL, h=rows*CELL;
 
-      const cols = gs.state.grid.cols, rows = gs.state.grid.rows;
-      const cell = CELL, hud = HUD, w = cols*cell, h = rows*cell;
+      // bg + hud bar already outside; draw grid
+      ctx.fillStyle = '#0f1620'; ctx.fillRect(0,0,w,h+HUD);
+      ctx.fillStyle = '#101a28'; ctx.fillRect(0,0,w,HUD);
 
-      // background + HUD
-      ctx.fillStyle = '#0f1620'; ctx.fillRect(0,0,w,h+hud);
-      ctx.fillStyle = '#101a28'; ctx.fillRect(0,0,w,hud);
+      ctx.strokeStyle = '#223042'; ctx.lineWidth=1;
+      for(let c=0;c<=cols;c++){ ctx.beginPath(); ctx.moveTo(c*CELL, HUD); ctx.lineTo(c*CELL, HUD+h); ctx.stroke(); }
+      for(let r=0;r<=rows;r++){ ctx.beginPath(); ctx.moveTo(0, HUD+r*CELL); ctx.lineTo(w, HUD+r*CELL); ctx.stroke(); }
 
-      // turn text
-      const players = gs.players || [];
-      const cur = players.length ? players[gs.turn % players.length] : '—';
-      ctx.fillStyle = '#e7edf5'; ctx.font = 'bold 20px system-ui';
-      ctx.fillText(`Turn: ${cur}`, 12, 26);
-
-      // grid
-      ctx.strokeStyle = '#223042'; ctx.lineWidth = 1;
-      for (let c = 0; c <= cols; c++) {
-        ctx.beginPath(); ctx.moveTo(c * cell, hud); ctx.lineTo(c * cell, hud + h); ctx.stroke();
-      }
-      for (let r = 0; r <= rows; r++) {
-        ctx.beginPath(); ctx.moveTo(0, hud + r * cell); ctx.lineTo(w, hud + r * cell); ctx.stroke();
+      // obstacles
+      for(const ob of (gs.state.obstacles||[])){
+        const x=ob.col*CELL+2, y=HUD+ob.row*CELL+2, s=CELL-4;
+        if(ob.type==='wall'){ ctx.fillStyle='#6b4b2a'; }
+        else { ctx.fillStyle='#1976d2'; }
+        ctx.fillRect(x,y,s,s);
       }
 
-      // obstacles (draw simple textures/colors)
-      for (const ob of (gs.state.obstacles || [])) {
-        const x = ob.col * cell, y = hud + ob.row * cell, pad = 2;
-        if (ob.type === 'wall') {
-          ctx.fillStyle = '#6b4b2a';
-          ctx.fillRect(x+pad, y+pad, cell-2*pad, cell-2*pad);
-        } else if (ob.type === 'water') {
-          ctx.fillStyle = '#1976d2';
-          ctx.fillRect(x+pad, y+pad, cell-2*pad, cell-2*pad);
+      // HIGHLIGHTS (current player)
+      const players = gs.players||[];
+      if(players.length){
+        const cur = players[gs.turn % players.length];
+        const a = gs.state.actors[cur];
+        if(a && a.hp>0){
+          // move tiles (green)
+          ctx.fillStyle = 'var(--green)';
+          for(const [c,r] of moveTiles({...a, name:cur})){
+            ctx.fillRect(c*CELL+4, HUD+r*CELL+4, CELL-8, CELL-8);
+          }
+          // weapon/consumable tiles (red)
+          ctx.fillStyle = 'var(--red)';
+          const redTiles = [];
+          if(a.has_deagle) redTiles.push(...deagleTiles(a));
+          if(a.has_shotgun) redTiles.push(...shotgunTiles(a));
+          if(a.consumable_selected==='Grenade' && a.grenade_count>0) redTiles.push(...grenadeTiles(a));
+          for(const [c,r] of redTiles){
+            ctx.fillRect(c*CELL+6, HUD+r*CELL+6, CELL-12, CELL-12);
+          }
         }
       }
 
-      // items (mystery boxes)
-      for (const it of (gs.state.items || [])) {
-        const x = it.col * cell, y = hud + it.row * cell, pad = 6;
-        ctx.fillStyle = (it.type === 'mystery_weapon') ? '#eab308' : '#22c55e';
-        ctx.fillRect(x+pad, y+pad, cell-2*pad, cell-2*pad);
-        ctx.fillStyle = '#0b1118'; ctx.font = 'bold 16px system-ui';
-        const icon = (it.type === 'mystery_weapon') ? 'W' : 'I';
+      // items
+      for(const it of (gs.state.items||[])){
+        const x=it.col*CELL+8, y=HUD+it.row*CELL+8, s=CELL-16;
+        ctx.fillStyle = (it.type==='mystery_weapon') ? '#eab308' : '#22c55e';
+        ctx.fillRect(x,y,s,s);
+        ctx.fillStyle = '#0b1118'; ctx.font='bold 16px system-ui';
+        const icon = (it.type==='mystery_weapon')?'W':'I';
         const tw = ctx.measureText(icon).width;
-        ctx.fillText(icon, x + cell/2 - tw/2, y + cell/2 + 6);
+        ctx.fillText(icon, x + s/2 - tw/2, y + s/2 + 6);
       }
 
       // players
-      for (const [name,a] of Object.entries(gs.state.actors || {})) {
-        if (a.hp <= 0) continue;
-        const cx = a.col*cell + cell/2, cy = hud + a.row*cell + cell/2;
-        const r = Math.floor(cell*0.32);
-        // body
-        const color = `rgb(${a.color[0]},${a.color[1]},${a.color[2]})`;
-        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
+      for(const [name,a] of Object.entries(gs.state.actors||{})){
+        if(a.hp<=0) continue;
+        const cx=a.col*CELL+CELL/2, cy=HUD+a.row*CELL+CELL/2, r=Math.floor(CELL*0.32);
+        ctx.fillStyle = `rgb(${a.color[0]},${a.color[1]},${a.color[2]})`;
+        ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
         // eyes
-        ctx.fillStyle = '#fff';
-        const eo = r*0.35, fwd = r*0.35;
+        ctx.fillStyle='#fff';
+        const eo=r*0.35, fwd=r*0.35;
         let e1x=cx-eo, e1y=cy, e2x=cx+eo, e2y=cy;
         if(a.facing==='left'){ e1x-=fwd; e2x-=fwd; }
         if(a.facing==='right'){ e1x+=fwd; e2x+=fwd; }
         if(a.facing==='up'){ e1y-=fwd; e2y-=fwd; }
         if(a.facing==='down'){ e1y+=fwd; e2y+=fwd; }
-        const er = Math.max(3, r*0.12|0);
+        const er=Math.max(3, r*0.12|0);
         ctx.beginPath(); ctx.arc(e1x,e1y,er,0,Math.PI*2); ctx.fill();
         ctx.beginPath(); ctx.arc(e2x,e2y,er,0,Math.PI*2); ctx.fill();
-
-        // name label
-        ctx.fillStyle = '#e7edf5'; ctx.font = '12px system-ui';
-        const tw = ctx.measureText(name).width;
+        // name
+        ctx.fillStyle='#e7edf5'; ctx.font='12px system-ui';
+        const tw=ctx.measureText(name).width;
         ctx.fillText(name, cx - tw/2, cy + r + 14);
       }
 
-      // hover highlight
-      if (hoverCell) {
-        ctx.strokeStyle = '#88a';
-        ctx.lineWidth = 2;
-        ctx.strokeRect(hoverCell.col*cell+1, hud+hoverCell.row*cell+1, cell-2, cell-2);
+      // hover outline
+      if(hoverCell){
+        ctx.strokeStyle = '#88a'; ctx.lineWidth=2;
+        ctx.strokeRect(hoverCell.col*CELL+1, HUD+hoverCell.row*CELL+1, CELL-2, CELL-2);
       }
     }
   </script>
