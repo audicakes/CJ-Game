@@ -270,12 +270,6 @@
 
     function buildSidebar(){
       if(!gs){ playersBox.innerHTML=''; myInvBox.innerHTML='<span class="muted">Join a room to see your items.</span>'; return; }
-      if (p.has_shotgun) {
-        const cd = p.shotgun_cooldown || 0;
-        myInvBox.appendChild(
-            mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, false, null, "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.")
-        );
-     }
       const players = gs.players||[];
       const turnName = players.length ? players[gs.turn % players.length] : null;
       turnText.textContent = 'Turn: ' + (turnName || '—');
@@ -313,7 +307,12 @@
         const p = gs.state.actors[me.name];
         myInvBox.innerHTML='';
         if(p.has_deagle)  myInvBox.appendChild(mkPill('Deagle', false, false, null, DESCR.Deagle));
-        if(p.has_shotgun) myInvBox.appendChild(mkPill('Shotgun', false, false, null, DESCR.Shotgun));
+        if (p.has_shotgun) {
+            const cd = p.shotgun_cooldown || 0;
+            myInvBox.appendChild(
+                mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, false, null, "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.")
+            );
+        }
         if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
         if(p.has_scope)   myInvBox.appendChild(mkPill('Scope', false, false, null, DESCR.Scope));
         if(p.has_shield)  myInvBox.appendChild(mkPill('Shield', false, false, null, DESCR.Shield));
