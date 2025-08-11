@@ -270,6 +270,12 @@
 
     function buildSidebar(){
       if(!gs){ playersBox.innerHTML=''; myInvBox.innerHTML='<span class="muted">Join a room to see your items.</span>'; return; }
+      if (p.has_shotgun) {
+        const cd = p.shotgun_cooldown || 0;
+        myInvBox.appendChild(
+            mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, false, null, "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.")
+        );
+     }
       const players = gs.players||[];
       const turnName = players.length ? players[gs.turn % players.length] : null;
       turnText.textContent = 'Turn: ' + (turnName || '—');

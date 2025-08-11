@@ -151,7 +151,7 @@ def join(game, name):
         "has_agility_boots": False, "has_scope": False, "has_shield": False,
         "has_grenade": False, "grenade_count": 0, "consumable_selected": None,
         "last_water_pos": None, "has_piercing": False, "piercing_count": 0,
-        "has_lucky_clover": False,
+        "has_lucky_clover": False, "shotgun_cooldown": 0,
 
     }
     g["players"].append(name)
@@ -323,6 +323,9 @@ def _end_turn_bookkeeping(st, name):
     else:
         p["last_water_pos"] = None
     p["consumable_selected"] = None  # clear consumable toggle each turn
+    # decrement shotgun cooldown if active
+    if p.get("shotgun_cooldown", 0) > 0:
+        p["shotgun_cooldown"] -= 1
 
 def _advance_turn(g):
     st = g["state"]
@@ -348,7 +351,7 @@ def _restart(g):
             "has_agility_boots": False, "has_scope": False, "has_shield": False,
             "has_grenade": False, "grenade_count": 0, "has_piercing": False, "piercing_count": 0,
             "consumable_selected": None, "last_water_pos": None, "facing": "right",
-            "has_piercing": False, "piercing_count": 0, "has_lucky_clover": False,
+            "has_piercing": False, "piercing_count": 0, "has_lucky_clover": False, "shotgun_cooldown": 0,
         })
     # Greedy farthest placement for all current players
     names = list(g["players"])
@@ -505,12 +508,21 @@ def apply_move(game, move):
         return g
 
     if t == "shotgun" and you["has_shotgun"]:
+        # Prevent shooting if on cooldown
+        if you.get("shotgun_cooldown", 0) > 0:
+            return g
+
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
-        fan = set(weapon_tiles_ignore_walls(st, you, "fan", SHOTGUN_BASE_DEPTH + (1 if ["has_scope"] else 0), width=3))
+        fan = set(weapon_tiles_ignore_walls(
+            st, you, "fan",
+            SHOTGUN_BASE_DEPTH + (1 if you["has_scope"] else 0),
+            width=3
+        ))
 
         victims = []
         for name, a in st["actors"].items():
-            if name == cur or a["hp"] <= 0: continue
+            if name == cur or a["hp"] <= 0:
+                continue
             if (a["col"], a["row"]) in fan:
                 victims.append(name)
 
@@ -523,9 +535,19 @@ def apply_move(game, move):
             you["piercing_count"] -= 1
             if you["piercing_count"] <= 0:
                 you["has_piercing"] = False
-                if you["consumable_selected"] == "Piercing": you["consumable_selected"] = None
+                if you["consumable_selected"] == "Piercing":
+                    you["consumable_selected"] = None
             else:
                 you["consumable_selected"] = "Piercing"
+
+        # Apply kickback (move backwards 1 tile if possible)
+        dc, dr = DIRECTIONS[you["facing"]]
+        back_c, back_r = you["col"] - dc, you["row"] - dr
+        if _in_bounds(back_c, back_r) and not _occupied(st, back_c, back_r) and not (_ob_at(st, back_c, back_r) and _ob_at(st, back_c, back_r)["type"] == "wall"):
+            you["col"], you["row"] = back_c, back_r
+
+        # Set shotgun cooldown (1 turn)
+        you["shotgun_cooldown"] = 1
 
         _advance_turn(g)
         return g
