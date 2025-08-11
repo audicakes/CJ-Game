@@ -346,15 +346,17 @@
         myInvBox.innerHTML='';
         if(p.has_deagle)  myInvBox.appendChild(mkPill('Deagle', false, false, null, DESCR.Deagle));
         if (p.has_shotgun) {
-          const cd = p.shotgun_cooldown || 0;
-          myInvBox.appendChild(
-            mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, false, null, "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.")
-          );
+            const cd = p.shotgun_cooldown || 0;
+            const title = cd > 0
+                ? `Shotgun is on cooldown for ${cd} more turn${cd > 1 ? 's' : ''}.`
+                : "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.";
+            myInvBox.appendChild(
+                mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, cd > 0, null, title)
+            );
         }
         if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
         if(p.has_scope)   myInvBox.appendChild(mkPill('Scope', false, false, null, DESCR.Scope));
         if(p.has_shield)  myInvBox.appendChild(mkPill('Shield', false, false, null, DESCR.Shield));
-
         if(p.has_grenade && p.grenade_count>0){
           const selected = p.consumable_selected === 'Grenade';
           myInvBox.appendChild(

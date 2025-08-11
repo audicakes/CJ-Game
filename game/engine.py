@@ -547,7 +547,7 @@ def apply_move(game, move):
             you["col"], you["row"] = back_c, back_r
 
         # Set shotgun cooldown (1 turn)
-        you["shotgun_cooldown"] = 1
+        you["shotgun_cooldown"] = 2
 
         _advance_turn(g)
         return g
