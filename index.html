@@ -1,0 +1,441 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CJ Game v1.1 by Kevin Zhang (shoutout BISV COKERAMS)</title>
+  <style>
+    :root {
+      --bg:#0b1118; --panel:#0f1620; --hud:#101a28; --muted:#9ab; --line:#223042;
+      --border:#263446; --green:rgba(144,238,144,.55); --red:rgba(255,99,71,.55);
+    }
+    body { background:var(--bg); color:#e7edf5; font-family: ui-sans-serif, system-ui; margin:16px; }
+    .top { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
+    label { margin-right:10px }
+    input, button { font-size:16px; }
+    .wrap { display:flex; gap:16px; align-items:flex-start; }
+    #left { background:var(--panel); border:1px solid var(--border); }
+    #hudbar { background:var(--hud); padding:8px 12px; border-bottom:1px solid var(--border); }
+    canvas { display:block; }
+    #sidebar { width:280px; border:1px solid var(--border); background:#0f1620; padding:12px; border-radius:6px; }
+    .muted { color:var(--muted); }
+    .hp { display:flex; gap:6px; margin:6px 0 8px; }
+    .pip { width:22px; height:12px; border-radius:4px; background:#345; }
+    .pip.on { background:#22c55e; }
+    .playerCard { padding:10px; border-radius:8px; border:1px solid #1e2b3b; margin-bottom:10px; }
+    .playerHeader { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; }
+    .turnTag { font-size:12px; padding:2px 6px; border-radius:999px; background:#13202f; border:1px solid #244; }
+    .pill { display:inline-block; padding:4px 8px; margin:4px 6px 0 0; border:1px solid #2a3a4f; border-radius:6px; cursor:default; }
+    .pill.action { cursor:pointer; }
+    .pill.sel { background:#1b2838; border-color:#3b5a7f; }
+    /* Tooltip */
+    #tooltip { position:fixed; pointer-events:none; background:#162233; border:1px solid #2c3f57; padding:8px 10px; border-radius:6px; font-size:14px; color:#e7edf5; display:none; max-width:260px; }
+  </style>
+</head>
+<body>
+  <h1 style="margin:0 0 8px">CJ Game v1.1 by Kevin Zhang (shoutout BISV COKERAMS)</h1>
+
+  <div class="top">
+    <label>Room <input id="room" value="alpha" /></label>
+    <label>Name <input id="name" value="Player" /></label>
+    <button id="joinBtn">Join</button>
+    <button id="endBtn" disabled>End Turn</button>
+    <span class="muted">Left Click: face · Arrows move (hold Shift for 2 with Boots) · Right Click: shoot/throw · Q self‑KO · R restart</span>
+  </div>
+
+  <div class="wrap">
+    <div id="left">
+      <div id="hudbar"><b id="turnText">Turn: —</b></div>
+      <canvas id="cv" width="900" height="650"></canvas>
+    </div>
+
+    <div id="sidebar">
+      <h3 style="margin:0 0 8px">Status</h3>
+      <div id="players"></div>
+      <hr style="border:0;border-top:1px solid #1e2b3b; margin:10px 0">
+      <div><b>My Items</b></div>
+      <div id="myInv"><span class="muted">Join a room to see your items.</span></div>
+    </div>
+  </div>
+
+  <div id="tooltip"></div>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    // --- image assets ---
+    const tex = { wall: new Image(), water: new Image() };
+    tex.wall.onload  = () => render && render();
+    tex.water.onload = () => render && render();
+    tex.wall.src  = 'wall.png';
+    tex.water.src = 'water.png';
+    // --- socket / state ---
+    const socket = io({ withCredentials:false });
+    const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
+    const joinBtn = document.getElementById('joinBtn'); const endBtn = document.getElementById('endBtn');
+    const playersBox = document.getElementById('players'); const myInvBox = document.getElementById('myInv');
+    const turnText = document.getElementById('turnText'); const tooltip = document.getElementById('tooltip');
+    const CELL=48, HUD=40;
+
+    const me = { room:null, name:null, id:null };
+    let gs = null, hoverCell = null;
+
+    socket.on('connect', ()=>{ me.id = socket.id; });
+    socket.on('state', s => { gs = s; render(); buildSidebar(); });
+
+    joinBtn.onclick = ()=>{
+      me.room = (document.getElementById('room').value||'alpha').trim();
+      me.name = (document.getElementById('name').value||'Player').trim();
+      socket.emit('join', { room: me.room, name: me.name });
+    };
+    endBtn.onclick = ()=>{ if(isMyTurn()) socket.emit('move', { room: me.room, move:{ type:'end_turn', who: me.name } }); };
+
+    cv.addEventListener('mousemove', e => { hoverCell = gridFromEvent(e); render(); });
+    cv.addEventListener('contextmenu', e => e.preventDefault());
+    cv.addEventListener('click', e => {
+      if(!gs || !isMyTurn()) return;
+      const p = gridFromEvent(e); if(!p) return;
+      const my = gs.state.actors[me.name]; if(!my) return;
+      const dx = p.col - my.col, dy = p.row - my.row;
+      if(dx || dy){
+        const dir = Math.abs(dx) >= Math.abs(dy) ? (dx>0?'right':'left') : (dy>0?'down':'up');
+        socket.emit('move', { room: me.room, move:{ type:'face', who: me.name, dir } });
+      }
+    });
+    cv.addEventListener('mousedown', e => {
+      if(e.button !== 2 || !gs || !isMyTurn()) return;
+      const p = gridFromEvent(e); if(!p) return;
+      const you = gs.state.actors[me.name];
+      if(you.consumable_selected === 'Grenade' && you.grenade_count > 0){
+        socket.emit('move', { room: me.room, move:{ type:'throw_grenade', who: me.name, target:{ col:p.col, row:p.row } } });
+      } else if (you.has_deagle){
+        socket.emit('move', { room: me.room, move:{ type:'shoot', who: me.name } });
+      } else if (you.has_shotgun){
+        socket.emit('move', { room: me.room, move:{ type:'shotgun', who: me.name } });
+      }
+    });
+
+    window.addEventListener('keydown', (e) => {
+      if (!gs || !me.name) return;
+
+      // Restart always allowed (even after game over)
+      if (e.key === 'r' || e.key === 'R') {
+        socket.emit('move', { room: me.room, move:{ type:'restart' } });
+        e.preventDefault();
+        return;
+      }
+      if (!isMyTurn() || gs.state.game_over) return;
+
+      if (e.key === 'q' || e.key === 'Q') {
+        socket.emit('move', { room: me.room, move:{ type:'self_ko', who: me.name } });
+        e.preventDefault();
+        return;
+      }
+
+      const dir = (e.key==='ArrowLeft'?'left':e.key==='ArrowRight'?'right':e.key==='ArrowUp'?'up':e.key==='ArrowDown'?'down':null);
+      if (!dir) return;
+      const you = gs.state.actors[me.name];
+      const wantTwo = e.shiftKey && you.has_agility_boots;
+      socket.emit('move', { room: me.room, move:{ type:'step', who: me.name, dir, steps: wantTwo ? 2 : 1 } });
+      e.preventDefault();
+    });
+
+    window.addEventListener('beforeunload', () => {
+        try { socket.disconnect(); } catch (e) {}
+    });
+
+
+    // --- client helpers (highlights only) ---
+    const DIRS = { left:[-1,0], right:[1,0], up:[0,-1], down:[0,1] };
+    function inBounds(c,r){ return c>=0 && r>=0 && c<gs.state.grid.cols && r<gs.state.grid.rows; }
+    function obAt(c,r){ return (gs.state.obstacles||[]).find(o=>o.col===c && o.row===r) || null; }
+    function occupied(c,r, exceptName){
+      for(const [n,a] of Object.entries(gs.state.actors||{})){
+        if(n===exceptName) continue;
+        if(a.hp>0 && a.col===c && a.row===r) return true;
+      }
+      return false;
+    }
+    function moveTiles(p){
+      const tiles=[];
+      for(const [dc,dr] of [[-1,0],[1,0],[0,-1],[0,1]]){
+        const c1=p.col+dc, r1=p.row+dr;
+        if(inBounds(c1,r1) && !occupied(c1,r1,p.name)){
+          const o1 = obAt(c1,r1); if(!(o1 && o1.type==='wall')){
+            tiles.push([c1,r1]);
+            if(p.has_agility_boots){
+              const c2=c1+dc, r2=r1+dr;
+              if(inBounds(c2,r2) && !occupied(c2,r2,p.name)){
+                const o2 = obAt(c2,r2); if(!(o2 && o2.type==='wall')) tiles.push([c2,r2]);
+              }
+            }
+          }
+        }
+      }
+      return tiles;
+    }
+    function deagleTiles(p){
+      if(!p.has_deagle) return [];
+      const rng = 4 + (p.has_scope?1:0);
+      const [dc,dr] = DIRS[p.facing]; const out=[]; let c=p.col+dc, r=p.row+dr, steps=0;
+      while(inBounds(c,r) && steps<rng){
+        out.push([c,r]); steps++;
+        const o = obAt(c,r); if(o && o.type==='wall') break;
+        c+=dc; r+=dr;
+      }
+      return out;
+    }
+    function shotgunTiles(p){
+      if(!p.has_shotgun) return [];
+      const depth = 2 + (p.has_scope?1:0);
+      const out=new Set(); const [dc,dr]=DIRS[p.facing];
+      const horizontal=(p.facing==='left'||p.facing==='right'), pc=horizontal?0:1, pr=horizontal?1:0;
+      const blocked=new Map([[-1,false],[0,false],[1,false]]);
+      for(let d=1; d<=depth; d++){
+        for(const side of [-1,0,1]){
+          if(blocked.get(side)) continue;
+          const tc=p.col+dc*d+pc*side, tr=p.row+dr*d+pr*side;
+          if(!inBounds(tc,tr)) continue;
+          // wall check
+          let w=false;
+          for(let s=1; s<=d; s++){
+            const cc=p.col+dc*s+pc*side, rr=p.row+dr*s+pr*side;
+            const o=obAt(cc,rr); if(o && o.type==='wall'){ w=true; break; }
+          }
+          if(w){ blocked.set(side,true); continue; }
+          out.add(tc+','+tr);
+        }
+      }
+      return [...out].map(s=>s.split(',').map(Number));
+    }
+    function grenadeTiles(p){
+      if(!(p.consumable_selected==='Grenade' && p.grenade_count>0)) return [];
+      const [dc,dr]=DIRS[p.facing];
+      const horizontal=(p.facing==='left'||p.facing==='right'), pc=horizontal?0:1, pr=horizontal?1:0;
+      const out=[];
+      for(let d=1; d<=3; d++){
+        for(const side of [-1,0,1]){
+          const c=p.col+dc*d+pc*side, r=p.row+dr*d+pr*side;
+          if(inBounds(c,r)) out.push([c,r]);
+        }
+      }
+      return out;
+    }
+
+    // --- sidebar (with tooltips & grenade toggle) ---
+    const DESCR = {
+      Deagle: 'Right‑click a red tile on your facing line to shoot.',
+      Shotgun: 'Right‑click a red tile in the 3‑wide fan ahead to blast.',
+      'Agility Boots': 'Hold Shift while moving to step 2 tiles.',
+      Scope: 'Weapons reach +1 tile forward.',
+      Shield: 'Blocks the next damage you would take.',
+      Grenade: 'Toggle, then right‑click a red tile in the 3×3 slab ahead. Ignores walls. One use.',
+    };
+
+    function mkPill(text, selectable=false, selected=false, onClick=null, title=''){
+      const el = document.createElement('span');
+      el.className = 'pill' + (selectable ? ' action' : '') + (selected ? ' sel' : '');
+      el.textContent = text;
+      if (title) el.dataset.tip = title;
+      if (onClick) el.onclick = onClick;
+      el.onmousemove = (e)=>{
+        if (!el.dataset.tip) return;
+        tooltip.style.display = 'block';
+        tooltip.textContent = el.dataset.tip;
+        const pad = 12;
+        tooltip.style.left = (e.clientX + pad) + 'px';
+        tooltip.style.top  = (e.clientY + pad) + 'px';
+      };
+      el.onmouseleave = ()=>{ tooltip.style.display = 'none'; };
+      return el;
+    }
+
+    function buildSidebar(){
+      if(!gs){ playersBox.innerHTML=''; myInvBox.innerHTML='<span class="muted">Join a room to see your items.</span>'; return; }
+      const players = gs.players||[];
+      const turnName = players.length ? players[gs.turn % players.length] : null;
+      turnText.textContent = 'Turn: ' + (turnName || '—');
+      endBtn.disabled = !isMyTurn();
+
+      // players list
+    playersBox.innerHTML = '';
+    for (const name of players) {
+    const a = gs.state.actors[name];
+    const card = document.createElement('div'); card.className='playerCard';
+    const head = document.createElement('div'); head.className='playerHeader';
+    const left = document.createElement('div'); left.textContent = name;
+    const right = document.createElement('div'); right.className='turnTag';
+    right.textContent = (name === turnName) ? 'Your Turn' : '';
+    head.append(left, right);
+
+    const hp = document.createElement('div'); hp.className='hp';
+    for (let i = 0; i < 3; i++) {
+        const pip = document.createElement('div');
+        pip.className = 'pip' + (i < a.hp ? ' on' : '');
+        hp.appendChild(pip);
+    }
+
+    // 🔒 Hide other players' items entirely (no labels, no tooltips)
+    const invRow = document.createElement('div');
+    if (name === me.name) {
+        // Show nothing here—your interactive inventory is in "My Items" below
+        invRow.innerHTML = '<span class="muted">Items shown below in “My Items”.</span>';
+    } else {
+        invRow.innerHTML = '<span class="muted">Items are hidden.</span>';
+    }
+
+    card.append(head, hp, invRow);
+    playersBox.appendChild(card);
+      }
+
+      // my inventory (interactive with tooltips)
+      if(me.name && gs.state.actors[me.name]){
+        const p = gs.state.actors[me.name];
+        myInvBox.innerHTML='';
+        if(p.has_deagle)  myInvBox.appendChild(mkPill('Deagle', false, false, null, DESCR.Deagle));
+        if(p.has_shotgun) myInvBox.appendChild(mkPill('Shotgun', false, false, null, DESCR.Shotgun));
+        if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
+        if(p.has_scope)   myInvBox.appendChild(mkPill('Scope', false, false, null, DESCR.Scope));
+        if(p.has_shield)  myInvBox.appendChild(mkPill('Shield', false, false, null, DESCR.Shield));
+        if(p.has_grenade && p.grenade_count>0){
+          const selected = p.consumable_selected === 'Grenade';
+          myInvBox.appendChild(
+            mkPill(`Grenade (${p.grenade_count})`, true, selected, ()=>{
+              socket.emit('move', { room: me.room, move:{ type:'toggle_grenade', who: me.name } });
+            }, DESCR.Grenade)
+          );
+        }
+        if(myInvBox.children.length===0) myInvBox.innerHTML='<span class="muted">No items</span>';
+      } else {
+        myInvBox.innerHTML='<span class="muted">Join a room to see your items.</span>';
+      }
+    }
+
+    // --- render ---
+    function gridFromEvent(ev){
+      if(!gs) return null;
+      const rect = cv.getBoundingClientRect();
+      const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+      if(y < HUD) return null;
+      const col = Math.floor(x / CELL);
+      const row = Math.floor((y - HUD) / CELL);
+      if(col<0||row<0||col>=gs.state.grid.cols||row>=gs.state.grid.rows) return null;
+      return { col, row };
+    }
+    function isMyTurn(){
+      if(!gs || !me.name) return false;
+      const players = gs.players||[]; if(!players.length) return false;
+      return players[gs.turn % players.length] === me.name;
+    }
+
+    function render(){
+      ctx.clearRect(0,0,cv.width,cv.height);
+      if(!gs) return;
+
+      const cols=gs.state.grid.cols, rows=gs.state.grid.rows;
+      const w=cols*CELL, h=rows*CELL;
+
+      // bg + hud
+      ctx.fillStyle = '#0f1620'; ctx.fillRect(0,0,w,h+HUD);
+      ctx.fillStyle = '#101a28'; ctx.fillRect(0,0,w,HUD);
+      ctx.fillStyle = '#9ab'; ctx.font = '14px system-ui';
+      ctx.fillText('Controls: Left Click face · Arrows move (Shift=2 with Boots) · Right Click shoot/throw · Q self‑KO · R restart', 12, 34);
+
+      // grid
+      ctx.strokeStyle = '#223042'; ctx.lineWidth=1;
+      for(let c=0;c<=cols;c++){ ctx.beginPath(); ctx.moveTo(c*CELL, HUD); ctx.lineTo(c*CELL, HUD+h); ctx.stroke(); }
+      for(let r=0;r<=rows;r++){ ctx.beginPath(); ctx.moveTo(0, HUD+r*CELL); ctx.lineTo(w, HUD+r*CELL); ctx.stroke(); }
+
+      // obstacles
+    for (const ob of (gs.state.obstacles || [])) {
+    const x = ob.col * CELL + 2, y = HUD + ob.row * CELL + 2, s = CELL - 4;
+
+    // If image isn't loaded yet, fall back to a flat color once
+    const img = (ob.type === 'wall') ? tex.wall : tex.water;
+    if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, x, y, s, s);
+    } else {
+        ctx.fillStyle = (ob.type === 'wall') ? '#6b4b2a' : '#1976d2';
+        ctx.fillRect(x, y, s, s);
+    }
+    }
+
+      // highlights for current player
+      const players = gs.players||[];
+      if(players.length){
+        const cur = players[gs.turn % players.length];
+        const a = gs.state.actors[cur];
+        if(a && a.hp>0){
+          // green move tiles
+          ctx.fillStyle = 'rgba(144,238,144,0.55)';
+          for(const [c,r] of moveTiles({...a, name:cur})){
+            ctx.fillRect(c*CELL+4, HUD+r*CELL+4, CELL-8, CELL-8);
+          }
+          // red action tiles
+          ctx.fillStyle = 'rgba(255,99,71,0.55)';
+          const reds = [];
+          if(a.has_deagle) reds.push(...deagleTiles(a));
+          if(a.has_shotgun) reds.push(...shotgunTiles(a));
+          if(a.consumable_selected==='Grenade' && a.grenade_count>0) reds.push(...grenadeTiles(a));
+          for(const [c,r] of reds){
+            ctx.fillRect(c*CELL+6, HUD+r*CELL+6, CELL-12, CELL-12);
+          }
+        }
+      }
+
+      // items
+      for (const it of (gs.state.items || [])) {
+        const x = it.col * CELL + 8, y = HUD + it.row * CELL + 8, s = CELL - 16;
+        ctx.fillStyle = (it.type === 'mystery_weapon')
+            ? 'rgba(234,179,8,0.25)'   // gold-ish, low opacity
+            : 'rgba(34,197,94,0.25)';  // green-ish, low opacity
+        ctx.fillRect(x, y, s, s);
+        ctx.fillStyle = '#0b1118';
+        ctx.font = 'bold 16px system-ui';
+        const icon = (it.type === 'mystery_weapon') ? 'W' : 'I';
+        const tw = ctx.measureText(icon).width;
+        ctx.fillText(icon, x + s / 2 - tw / 2, y + s / 2 + 6);
+        }
+
+      // players
+      for(const [name,a] of Object.entries(gs.state.actors||{})){
+        if(a.hp<=0) continue;
+        const cx=a.col*CELL+CELL/2, cy=HUD+a.row*CELL+CELL/2, r=Math.floor(CELL*0.32);
+        ctx.fillStyle = `rgb(${a.color[0]},${a.color[1]},${a.color[2]})`;
+        ctx.beginPath(); ctx.arc(cx,cy,r,0,Math.PI*2); ctx.fill();
+        // eyes
+        ctx.fillStyle='#fff';
+        const eo=r*0.35, fwd=r*0.35;
+        let e1x=cx-eo, e1y=cy, e2x=cx+eo, e2y=cy;
+        if(a.facing==='left'){ e1x-=fwd; e2x-=fwd; }
+        if(a.facing==='right'){ e1x+=fwd; e2x+=fwd; }
+        if(a.facing==='up'){ e1y-=fwd; e2y-=fwd; }
+        if(a.facing==='down'){ e1y+=fwd; e2y+=fwd; }
+        const er=Math.max(3, r*0.12|0);
+        ctx.beginPath(); ctx.arc(e1x,e1y,er,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(e2x,e2y,er,0,Math.PI*2); ctx.fill();
+        // name
+        ctx.fillStyle='#e7edf5'; ctx.font='12px system-ui';
+        const tw=ctx.measureText(name).width;
+        ctx.fillText(name, cx - tw/2, cy + r + 14);
+      }
+
+      // hover outline
+      if(hoverCell){
+        ctx.strokeStyle = '#88a'; ctx.lineWidth=2;
+        ctx.strokeRect(hoverCell.col*CELL+1, HUD+hoverCell.row*CELL+1, CELL-2, CELL-2);
+      }
+
+      // Game Over overlay
+      if (gs.state.game_over) {
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(0, HUD, w, h);
+        ctx.fillStyle = '#e7edf5'; ctx.font = 'bold 28px system-ui';
+        const msg='Game Over', tw=ctx.measureText(msg).width;
+        ctx.fillText(msg, (w - tw)/2, HUD + h/2 - 8);
+        ctx.font = '16px system-ui';
+        const sub='Press R to restart', tw2=ctx.measureText(sub).width;
+        ctx.fillText(sub, (w - tw2)/2, HUD + h/2 + 18);
+      }
+    }
+  </script>
+</body>
+</html>
