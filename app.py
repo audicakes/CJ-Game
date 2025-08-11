@@ -1,19 +1,17 @@
 # app.py
 import os
-from flask import Flask
-from flask import send_from_directory
+from flask import Flask, send_from_directory, request
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "public")
-from flask_socketio import SocketIO, emit, join_room
+from flask_socketio import SocketIO, emit, join_room, leave_room
 from game.engine import new_room, join as eng_join, apply_move
-from flask import request
-from flask_socketio import leave_room
 
 
 rooms = {}
 clients = {}  # sid -> {"room": str, "name": str}
 
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder="public", static_url_path="")
+STATIC_DIR = app.static_folder  # "public"
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "devkey")
 
 # ---- CORS + fallback async mode ----
@@ -34,8 +32,7 @@ rooms = {}  # room_id -> { "players": [], "state": {...}, "turn": 0 }
 
 @app.route("/")
 def index():
-    # Serve the browser client
-    return send_from_directory(STATIC_DIR, "index.html")
+    return app.send_static_file("index.html")
 
 def health():
     return "CJ Game server OK"

@@ -62,10 +62,9 @@
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
     // --- image assets ---
-    const tex = {
-    wall: new Image(),
-    water: new Image()
-    };
+    const tex = { wall: new Image(), water: new Image() };
+    tex.wall.onload  = () => render && render();
+    tex.water.onload = () => render && render();
     tex.wall.src  = 'wall.png';
     tex.water.src = 'water.png';
     // --- socket / state ---
