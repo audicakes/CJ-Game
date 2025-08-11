@@ -1,0 +1,158 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>CJ Game (Browser)</title>
+  <style>
+    body { background:#0b1118; color:#e7edf5; font-family: system-ui, sans-serif; }
+    .row { margin: 8px 0; }
+    input, button { font-size: 16px; }
+    canvas { background:#0f1620; display:block; margin-top:10px; border:1px solid #263446; }
+  </style>
+</head>
+<body>
+  <h1>CJ Game (Browser)</h1>
+  <div class="row">
+    <label>Room <input id="room" value="alpha" /></label>
+    <label>Name <input id="name" value="Player" /></label>
+    <button id="joinBtn">Join</button>
+    <button id="endBtn" disabled>End Turn</button>
+  </div>
+  <div class="row" id="info"></div>
+  <canvas id="cv" width="900" height="650"></canvas>
+
+  <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+  <script>
+    // Connect to same origin (Render or local), no hardcoded URL
+    const socket = io({ withCredentials:false });
+    const cv = document.getElementById('cv');
+    const ctx = cv.getContext('2d');
+    const info = document.getElementById('info');
+    const joinBtn = document.getElementById('joinBtn');
+    const endBtn = document.getElementById('endBtn');
+    const me = { room:null, name:null, id:null };
+
+    let gs = null; // latest server state
+
+    socket.on('connect', () => {
+      me.id = socket.id;
+      log('connected', me.id);
+    });
+    socket.on('state', (state) => {
+      gs = state;
+      render();
+      refreshUI();
+    });
+    socket.on('connect_error', (e) => log('connect_error', e.message));
+
+    function log(...a){ info.textContent = a.join(' '); }
+
+    function refreshUI(){
+      if(!gs) { endBtn.disabled = true; return; }
+      const players = gs.players || [];
+      const cur = players.length ? players[gs.turn % players.length] : null;
+      endBtn.disabled = !(me.name && cur === me.name);
+    }
+
+    joinBtn.onclick = () => {
+      me.room = document.getElementById('room').value.trim() || 'alpha';
+      me.name = document.getElementById('name').value.trim() || 'Player';
+      socket.emit('join', { room: me.room, name: me.name });
+    };
+    endBtn.onclick = () => {
+      if(!me.room || !me.name) return;
+      socket.emit('move', { room: me.room, move:{ type:'end_turn', who:me.name } });
+    };
+
+    // click: face toward tile
+    cv.addEventListener('click', (e) => {
+      const p = getGridFromMouse(e);
+      if(!p || !isMyTurn()) return;
+      const meActor = gs.state.actors[me.name];
+      if(!meActor) return;
+      const dx = p.col - meActor.col;
+      const dy = p.row - meActor.row;
+      if(dx === 0 && dy === 0) return;
+      const dir = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
+      socket.emit('move', { room: me.room, move:{ type:'face', who:me.name, dir:dir } });
+    });
+
+    // arrows: step one tile (consumes turn)
+    window.addEventListener('keydown', (e) => {
+      if(!isMyTurn()) return;
+      const k = e.key;
+      const dir = (k==='ArrowLeft'?'left':k==='ArrowRight'?'right':k==='ArrowUp'?'up':k==='ArrowDown'?'down':null);
+      if(!dir) return;
+      e.preventDefault();
+      socket.emit('move', { room: me.room, move:{ type:'step', who:me.name, dir:dir } });
+    });
+
+    function isMyTurn(){
+      if(!gs || !me.name) return false;
+      const players = gs.players || [];
+      if(!players.length) return false;
+      return players[gs.turn % players.length] === me.name;
+    }
+
+    function getGridFromMouse(ev){
+      if(!gs) return null;
+      const rect = cv.getBoundingClientRect();
+      const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
+      const cols = gs.state.grid.cols, rows = gs.state.grid.rows;
+      const cell = 48, hud = 40, margin = 1;
+      if(y < hud) return null;
+      const col = Math.floor(x / cell);
+      const row = Math.floor((y - hud) / cell);
+      if(col < 0 || col >= cols || row < 0 || row >= rows) return null;
+      return { col, row };
+    }
+
+    function render(){
+      ctx.clearRect(0,0,cv.width,cv.height);
+      if(!gs) return;
+
+      const cols = gs.state.grid.cols, rows = gs.state.grid.rows;
+      const cell = 48, hud = 40, w = cols*cell, h = rows*cell;
+      // background & HUD
+      ctx.fillStyle = '#0f1620'; ctx.fillRect(0,0,w,h+hud);
+      ctx.fillStyle = '#101a28'; ctx.fillRect(0,0,w,hud);
+      // turn text
+      const players = gs.players || [];
+      const cur = players.length ? players[gs.turn % players.length] : '—';
+      ctx.fillStyle = '#e7edf5'; ctx.font = 'bold 20px system-ui';
+      ctx.fillText(`Turn: ${cur}`, 12, 26);
+
+      // grid
+      ctx.strokeStyle = '#223042'; ctx.lineWidth = 1;
+      for(let c=0;c<=cols;c++){ ctx.beginPath(); ctx.moveTo(c*cell, hud); ctx.lineTo(c*cell, hud+h); ctx.stroke(); }
+      for(let r=0;r<=rows;r++){ ctx.beginPath(); ctx.moveTo(0, hud+r*cell); ctx.lineTo(w, hud+r*cell); ctx.stroke(); }
+
+      // players
+      const actors = gs.state.actors || {};
+      for(const [name,a] of Object.entries(actors)){
+        const cx = a.col*cell + cell/2;
+        const cy = hud + a.row*cell + cell/2;
+        const radius = Math.floor(cell*0.32);
+        // body
+        const color = `rgb(${a.color[0]},${a.color[1]},${a.color[2]})`;
+        ctx.fillStyle = color;
+        ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI*2); ctx.fill();
+        // eyes
+        ctx.fillStyle = '#fff';
+        const eyeOffset = radius*0.35, fwd = radius*0.35;
+        let e1x=cx-eyeOffset, e1y=cy, e2x=cx+eyeOffset, e2y=cy;
+        if(a.facing==='left'){ e1x-=fwd; e2x-=fwd; }
+        if(a.facing==='right'){ e1x+=fwd; e2x+=fwd; }
+        if(a.facing==='up'){ e1y-=fwd; e2y-=fwd; }
+        if(a.facing==='down'){ e1y+=fwd; e2y+=fwd; }
+        const er = Math.max(3, radius*0.12|0);
+        ctx.beginPath(); ctx.arc(e1x,e1y,er,0,Math.PI*2); ctx.fill();
+        ctx.beginPath(); ctx.arc(e2x,e2y,er,0,Math.PI*2); ctx.fill();
+        // label
+        ctx.fillStyle = '#e7edf5'; ctx.font = '12px system-ui';
+        ctx.fillText(name, cx - ctx.measureText(name).width/2, cy + radius + 14);
+      }
+    }
+  </script>
+</body>
+</html>
