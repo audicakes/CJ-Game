@@ -17,7 +17,7 @@
     #hudbar { background:var(--hud); padding:8px 12px; border-bottom:1px solid var(--border); }
     canvas { display:block; }
     #sidebar { width:280px; border:1px solid var(--border); background:#0f1620; padding:12px; border-radius:6px; }
-    .muted { color:var(--muted); }
+    .muted { color:#9ab; }
     .hp { display:flex; gap:6px; margin:6px 0 8px; }
     .pip { width:22px; height:12px; border-radius:4px; background:#345; }
     .pip.on { background:#22c55e; }
@@ -27,7 +27,6 @@
     .pill { display:inline-block; padding:4px 8px; margin:4px 6px 0 0; border:1px solid #2a3a4f; border-radius:6px; cursor:default; }
     .pill.action { cursor:pointer; }
     .pill.sel { background:#1b2838; border-color:#3b5a7f; }
-    /* Tooltip */
     #tooltip { position:fixed; pointer-events:none; background:#162233; border:1px solid #2c3f57; padding:8px 10px; border-radius:6px; font-size:14px; color:#e7edf5; display:none; max-width:260px; }
   </style>
 </head>
@@ -62,13 +61,15 @@
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
     const HUD_TITLE = 'CJ Game v1.1 by Kevin Zhang (shoutout BISV COKERAMS)';
-    // --- image assets ---
+
+    // images
     const tex = { wall: new Image(), water: new Image() };
     tex.wall.onload  = () => render && render();
     tex.water.onload = () => render && render();
     tex.wall.src  = 'wall.png';
     tex.water.src = 'water.png';
-    // --- socket / state ---
+
+    // socket / state
     const socket = io({ withCredentials:false });
     const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
     const joinBtn = document.getElementById('joinBtn'); const endBtn = document.getElementById('endBtn');
@@ -117,7 +118,6 @@
     window.addEventListener('keydown', (e) => {
       if (!gs || !me.name) return;
 
-      // Restart always allowed (even after game over)
       if (e.key === 'r' || e.key === 'R') {
         socket.emit('move', { room: me.room, move:{ type:'restart' } });
         e.preventDefault();
@@ -140,11 +140,10 @@
     });
 
     window.addEventListener('beforeunload', () => {
-        try { socket.disconnect(); } catch (e) {}
+      try { socket.disconnect(); } catch (e) {}
     });
 
-
-    // --- client helpers (highlights only) ---
+    // helpers (client-side highlight calc only)
     const DIRS = { left:[-1,0], right:[1,0], up:[0,-1], down:[0,1] };
     function inBounds(c,r){ return c>=0 && r>=0 && c<gs.state.grid.cols && r<gs.state.grid.rows; }
     function obAt(c,r){ return (gs.state.obstacles||[]).find(o=>o.col===c && o.row===r) || null; }
@@ -195,7 +194,6 @@
           if(blocked.get(side)) continue;
           const tc=p.col+dc*d+pc*side, tr=p.row+dr*d+pr*side;
           if(!inBounds(tc,tr)) continue;
-          // wall check
           let w=false;
           for(let s=1; s<=d; s++){
             const cc=p.col+dc*s+pc*side, rr=p.row+dr*s+pr*side;
@@ -208,25 +206,24 @@
       return [...out].map(s=>s.split(',').map(Number));
     }
     function deagleTilesIgnoreWalls(p){
-        const rng = 4 + (p.has_scope?1:0);
-        const [dc,dr] = DIRS[p.facing];
-        const out=[]; let c=p.col+dc, r=p.row+dr;
-        for(let i=0;i<rng;i++){ if(!inBounds(c,r)) break; out.push([c,r]); c+=dc; r+=dr; }
-            return out;
+      const rng = 4 + (p.has_scope?1:0);
+      const [dc,dr] = DIRS[p.facing];
+      const out=[]; let c=p.col+dc, r=p.row+dr;
+      for(let i=0;i<rng;i++){ if(!inBounds(c,r)) break; out.push([c,r]); c+=dc; r+=dr; }
+      return out;
     }
     function shotgunTilesIgnoreWalls(p){
-        const depth = 2 + (p.has_scope?1:0);
-        const out=[]; const [dc,dr]=DIRS[p.facing];
-        const horiz=(p.facing==='left'||p.facing==='right'), pc=horiz?0:1, pr=horiz?1:0;
-        for(let d=1; d<=depth; d++){
-            for(const side of [-1,0,1]){
-                const c=p.col+dc*d+pc*side, r=p.row+dr*d+pr*side;
-                if(inBounds(c,r)) out.push([c,r]);
-            }
+      const depth = 2 + (p.has_scope?1:0);
+      const out=[]; const [dc,dr]=DIRS[p.facing];
+      const horiz=(p.facing==='left'||p.facing==='right'), pc=horiz?0:1, pr=horiz?1:0;
+      for(let d=1; d<=depth; d++){
+        for(const side of [-1,0,1]){
+          const c=p.col+dc*d+pc*side, r=p.row+dr*d+pr*side;
+          if(inBounds(c,r)) out.push([c,r]);
         }
-        return out;
+      }
+      return out;
     }
-
     function grenadeTiles(p){
       if(!(p.consumable_selected==='Grenade' && p.grenade_count>0)) return [];
       const [dc,dr]=DIRS[p.facing];
@@ -241,7 +238,7 @@
       return out;
     }
 
-    // --- sidebar (with tooltips & grenade toggle) ---
+    // tooltips + inventory UI
     const DESCR = {
       Deagle: 'Right‑click a red tile on your facing line to shoot.',
       Shotgun: 'Right‑click a red tile in the 3‑wide fan ahead to blast.',
@@ -251,7 +248,6 @@
       Grenade: 'Toggle, then right‑click a red tile in the 3×3 slab ahead. Ignores walls. One use.',
       'Piercing Rounds': 'Toggle. Your NEXT shot (Deagle or Shotgun) ignores walls and can hit multiple enemies. One use.',
       'Lucky Clover': 'When you shoot, 50% chance to deal +1 extra to one victim. Consumed when it procs.',
-
     };
 
     function mkPill(text, selectable=false, selected=false, onClick=null, title=''){
@@ -280,37 +276,33 @@
       endBtn.disabled = !isMyTurn();
 
       // players list
-    playersBox.innerHTML = '';
-    for (const name of players) {
-    const a = gs.state.actors[name];
-    const card = document.createElement('div'); card.className='playerCard';
-    const head = document.createElement('div'); head.className='playerHeader';
-    const left = document.createElement('div'); left.textContent = name;
-    const right = document.createElement('div'); right.className='turnTag';
-    right.textContent = (name === turnName) ? 'Your Turn' : '';
-    head.append(left, right);
+      playersBox.innerHTML = '';
+      for (const name of players) {
+        const a = gs.state.actors[name];
+        const card = document.createElement('div'); card.className='playerCard';
+        const head = document.createElement('div'); head.className='playerHeader';
+        const left = document.createElement('div'); left.textContent = name;
+        const right = document.createElement('div'); right.className='turnTag';
+        right.textContent = (name === turnName) ? 'Your Turn' : '';
+        head.append(left, right);
 
-    const hp = document.createElement('div'); hp.className='hp';
-    for (let i = 0; i < 3; i++) {
-        const pip = document.createElement('div');
-        pip.className = 'pip' + (i < a.hp ? ' on' : '');
-        hp.appendChild(pip);
-    }
+        const hp = document.createElement('div'); hp.className='hp';
+        for (let i = 0; i < 3; i++) {
+          const pip = document.createElement('div');
+          pip.className = 'pip' + (i < a.hp ? ' on' : '');
+          hp.appendChild(pip);
+        }
 
-    // 🔒 Hide other players' items entirely (no labels, no tooltips)
-    const invRow = document.createElement('div');
-    if (name === me.name) {
-        // Show nothing here—your interactive inventory is in "My Items" below
-        invRow.innerHTML = '<span class="muted">Items shown below in “My Items”.</span>';
-    } else {
-        invRow.innerHTML = '<span class="muted">Items are hidden.</span>';
-    }
+        const invRow = document.createElement('div');
+        invRow.innerHTML = (name === me.name)
+          ? '<span class="muted">Items shown below in “My Items”.</span>'
+          : '<span class="muted">Items are hidden.</span>';
 
-    card.append(head, hp, invRow);
-    playersBox.appendChild(card);
+        card.append(head, hp, invRow);
+        playersBox.appendChild(card);
       }
 
-      // my inventory (interactive with tooltips)
+      // my inventory (interactive)
       if(me.name && gs.state.actors[me.name]){
         const p = gs.state.actors[me.name];
         myInvBox.innerHTML='';
@@ -319,6 +311,7 @@
         if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
         if(p.has_scope)   myInvBox.appendChild(mkPill('Scope', false, false, null, DESCR.Scope));
         if(p.has_shield)  myInvBox.appendChild(mkPill('Shield', false, false, null, DESCR.Shield));
+
         if(p.has_grenade && p.grenade_count>0){
           const selected = p.consumable_selected === 'Grenade';
           myInvBox.appendChild(
@@ -327,18 +320,16 @@
             }, DESCR.Grenade)
           );
         }
-        // Piercing Rounds (toggleable)
         if (p.has_piercing && p.piercing_count > 0) {
-            const selected = p.consumable_selected === 'Piercing';
-            myInvBox.appendChild(
-                mkPill(`Piercing Rounds (${p.piercing_count})`, true, selected, ()=>{
-                socket.emit('move', { room: me.room, move:{ type:'toggle_piercing', who: me.name } });
-                }, DESCR['Piercing Rounds'])
-            );
+          const selected = p.consumable_selected === 'Piercing';
+          myInvBox.appendChild(
+            mkPill(`Piercing Rounds (${p.piercing_count})`, true, selected, ()=>{
+              socket.emit('move', { room: me.room, move:{ type:'toggle_piercing', who: me.name } });
+            }, DESCR['Piercing Rounds'])
+          );
         }
-        // Lucky Clover (passive, non-interactive)
         if (p.has_lucky_clover) {
-            myInvBox.appendChild(mkPill('Lucky Clover', false, false, null, DESCR['Lucky Clover']));
+          myInvBox.appendChild(mkPill('Lucky Clover', false, false, null, DESCR['Lucky Clover']));
         }
 
         if(myInvBox.children.length===0) myInvBox.innerHTML='<span class="muted">No items</span>';
@@ -347,7 +338,6 @@
       }
     }
 
-    // --- render ---
     function gridFromEvent(ev){
       if(!gs) return null;
       const rect = cv.getBoundingClientRect();
@@ -371,38 +361,30 @@
       const cols=gs.state.grid.cols, rows=gs.state.grid.rows;
       const w=cols*CELL, h=rows*CELL;
 
-    // bg + hud
-    ctx.fillStyle = '#0f1620'; ctx.fillRect(0,0,w,h+HUD);
-    ctx.fillStyle = '#101a28'; ctx.fillRect(0,0,w,HUD);
+      // bg + hud
+      ctx.fillStyle = '#0f1620'; ctx.fillRect(0,0,w,h+HUD);
+      ctx.fillStyle = '#101a28'; ctx.fillRect(0,0,w,HUD);
+      ctx.fillStyle = '#e7edf5'; ctx.font = 'bold 16px system-ui';
+      ctx.fillText(HUD_TITLE, 12, 20);
+      ctx.fillStyle = '#9ab'; ctx.font = '14px system-ui';
+      ctx.fillText('Controls: Left Click face · Arrows move (Shift=2 with Boots) · Right Click shoot/throw · Q self‑KO · R restart', 12, 34);
 
-    // Title on HUD
-    ctx.fillStyle = '#e7edf5';
-    ctx.font = 'bold 16px system-ui';
-    ctx.fillText(HUD_TITLE, 12, 20);
-
-    // Controls line
-    ctx.fillStyle = '#9ab';
-    ctx.font = '14px system-ui';
-    ctx.fillText('Controls: Left Click face · Arrows move (Shift=2 with Boots) · Right Click shoot/throw · Q self‑KO · R restart', 12, 34);
-      
-    // grid
+      // grid
       ctx.strokeStyle = '#223042'; ctx.lineWidth=1;
       for(let c=0;c<=cols;c++){ ctx.beginPath(); ctx.moveTo(c*CELL, HUD); ctx.lineTo(c*CELL, HUD+h); ctx.stroke(); }
       for(let r=0;r<=rows;r++){ ctx.beginPath(); ctx.moveTo(0, HUD+r*CELL); ctx.lineTo(w, HUD+r*CELL); ctx.stroke(); }
 
-    // obstacles
-    for (const ob of (gs.state.obstacles || [])) {
-    const x = ob.col * CELL + 2, y = HUD + ob.row * CELL + 2, s = CELL - 4;
-
-    // If image isn't loaded yet, fall back to a flat color once
-    const img = (ob.type === 'wall') ? tex.wall : tex.water;
-    if (img.complete && img.naturalWidth > 0) {
-        ctx.drawImage(img, x, y, s, s);
-    } else {
-        ctx.fillStyle = (ob.type === 'wall') ? '#6b4b2a' : '#1976d2';
-        ctx.fillRect(x, y, s, s);
-    }
-    }
+      // obstacles
+      for (const ob of (gs.state.obstacles || [])) {
+        const x = ob.col * CELL + 2, y = HUD + ob.row * CELL + 2, s = CELL - 4;
+        const img = (ob.type === 'wall') ? tex.wall : tex.water;
+        if (img.complete && img.naturalWidth > 0) {
+          ctx.drawImage(img, x, y, s, s);
+        } else {
+          ctx.fillStyle = (ob.type === 'wall') ? '#6b4b2a' : '#1976d2';
+          ctx.fillRect(x, y, s, s);
+        }
+      }
 
       // highlights for current player
       const players = gs.players||[];
@@ -415,14 +397,14 @@
           for(const [c,r] of moveTiles({...a, name:cur})){
             ctx.fillRect(c*CELL+4, HUD+r*CELL+4, CELL-8, CELL-8);
           }
-          // red action tiles
+          // red action tiles (respect Piercing toggle)
           ctx.fillStyle = 'rgba(255,99,71,0.55)';
           const reds = [];
-            const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
-            if (a.has_deagle)  reds.push(...(pierce ? deagleTilesIgnoreWalls(a)  : deagleTiles(a)));
-            if (a.has_shotgun) reds.push(...(pierce ? shotgunTilesIgnoreWalls(a) : shotgunTiles(a)));
-            if (a.consumable_selected==='Grenade' && a.grenade_count>0) reds.push(...grenadeTiles(a));
-            for (const [c,r] of reds) ctx.fillRect(c*CELL+6, HUD+r*CELL+6, CELL-12, CELL-12);
+          const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
+          if (a.has_deagle)  reds.push(...(pierce ? deagleTilesIgnoreWalls(a)  : deagleTiles(a)));
+          if (a.has_shotgun) reds.push(...(pierce ? shotgunTilesIgnoreWalls(a) : shotgunTiles(a)));
+          if (a.consumable_selected==='Grenade' && a.grenade_count>0) reds.push(...grenadeTiles(a));
+          for (const [c,r] of reds) {
             ctx.fillRect(c*CELL+6, HUD+r*CELL+6, CELL-12, CELL-12);
           }
         }
@@ -431,16 +413,13 @@
       // items
       for (const it of (gs.state.items || [])) {
         const x = it.col * CELL + 8, y = HUD + it.row * CELL + 8, s = CELL - 16;
-        ctx.fillStyle = (it.type === 'mystery_weapon')
-            ? 'rgba(234,179,8,0.25)'   // gold-ish, low opacity
-            : 'rgba(34,197,94,0.25)';  // green-ish, low opacity
+        ctx.fillStyle = (it.type === 'mystery_weapon') ? 'rgba(234,179,8,0.25)' : 'rgba(34,197,94,0.25)';
         ctx.fillRect(x, y, s, s);
-        ctx.fillStyle = '#0b1118';
-        ctx.font = 'bold 16px system-ui';
+        ctx.fillStyle = '#0b1118'; ctx.font = 'bold 16px system-ui';
         const icon = (it.type === 'mystery_weapon') ? 'W' : 'I';
         const tw = ctx.measureText(icon).width;
         ctx.fillText(icon, x + s / 2 - tw / 2, y + s / 2 + 6);
-        }
+      }
 
       // players
       for(const [name,a] of Object.entries(gs.state.actors||{})){
@@ -482,7 +461,7 @@
         const sub='Press R to restart', tw2=ctx.measureText(sub).width;
         ctx.fillText(sub, (w - tw2)/2, HUD + h/2 + 18);
       }
-
+    }
   </script>
 </body>
 </html>
