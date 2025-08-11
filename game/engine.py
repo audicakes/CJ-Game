@@ -88,8 +88,8 @@ def _gen_level(st, num_players):
 
     # items
     st["items"].clear()
-    base = num_players * 3
-    n_items = random.randint(max(1, base-2), base+2)
+    base = num_players * 4
+    n_items = random.randint(max(1, base), base)
     n_weapon = int(n_items // 2.5)
     n_misc = n_items - n_weapon
 
