@@ -475,7 +475,7 @@ def apply_move(game, move):
 
     if t == "shoot" and you["has_deagle"]:
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
-        tiles = weapon_tiles_ignore_walls(st, p, "line", DEAGLE_BASE_RANGE_TILES + (1 if p["has_scope"] else 0))
+        tiles = weapon_tiles_ignore_walls(st, you, "line", DEAGLE_BASE_RANGE_TILES + (1 if you["has_scope"] else 0))
 
 
         victims = []
@@ -506,7 +506,7 @@ def apply_move(game, move):
 
     if t == "shotgun" and you["has_shotgun"]:
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
-        fan = set(weapon_tiles_ignore_walls(st, p, "fan", SHOTGUN_BASE_DEPTH + (1 if p["has_scope"] else 0), width=3))
+        fan = set(weapon_tiles_ignore_walls(st, you, "fan", SHOTGUN_BASE_DEPTH + (1 if ["has_scope"] else 0), width=3))
 
         victims = []
         for name, a in st["actors"].items():
