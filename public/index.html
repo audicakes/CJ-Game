@@ -13,7 +13,8 @@
     label { margin-right:10px }
     input, button { font-size:16px; }
     .wrap { display:flex; gap:16px; align-items:flex-start; }
-    #left { background:var(--panel); border:1px solid var(--border); }
+    /* Left panel now expands and lets the canvas size itself */
+    #left { background:var(--panel); border:1px solid var(--border); flex:1; display:flex; flex-direction:column; }
     #hudbar { background:var(--hud); padding:8px 12px; border-bottom:1px solid var(--border); }
     canvas { display:block; }
     #sidebar { width:280px; border:1px solid var(--border); background:#0f1620; padding:12px; border-radius:6px; }
@@ -44,7 +45,8 @@
   <div class="wrap">
     <div id="left">
       <div id="hudbar"><b id="turnText">Turn: —</b></div>
-      <canvas id="cv" width="900" height="650"></canvas>
+      <!-- Canvas size is set dynamically in JS -->
+      <canvas id="cv"></canvas>
     </div>
 
     <div id="sidebar">
@@ -75,13 +77,43 @@
     const joinBtn = document.getElementById('joinBtn'); const endBtn = document.getElementById('endBtn');
     const playersBox = document.getElementById('players'); const myInvBox = document.getElementById('myInv');
     const turnText = document.getElementById('turnText'); const tooltip = document.getElementById('tooltip');
-    const CELL=48, HUD=40;
+
+    // dynamic sizing
+    let CELL = 48;                // will be recalculated
+    const HUD = 40;               // on-canvas HUD height
+    const MIN_CELL = 36;          // keep tiles readable
+    const MAX_CELL = 96;          // avoid cartoonishly huge tiles
+
+    function relayout() {
+      if (!gs) return;
+      const left = document.getElementById('left');
+      const cols = gs.state.grid.cols;
+      const rows = gs.state.grid.rows;
+
+      // Available width is whatever the left panel currently has via flex.
+      const availW = Math.max(200, left.clientWidth);
+
+      // Available height: viewport minus stuff above the canvas.
+      const topY = cv.getBoundingClientRect().top || left.getBoundingClientRect().top;
+      const availH = Math.max(200, window.innerHeight - topY - 24); // 24px bottom padding
+
+      const cellByW = Math.floor(availW / cols);
+      const cellByH = Math.floor((availH - HUD) / rows);
+      const nextCell = Math.max(MIN_CELL, Math.min(MAX_CELL, Math.min(cellByW, cellByH)));
+
+      if (nextCell !== CELL || cv.width === 0) {
+        CELL = nextCell;
+        cv.width  = cols * CELL;
+        cv.height = HUD + rows * CELL;
+        render();
+      }
+    }
 
     const me = { room:null, name:null, id:null };
     let gs = null, hoverCell = null;
 
     socket.on('connect', ()=>{ me.id = socket.id; });
-    socket.on('state', s => { gs = s; render(); buildSidebar(); });
+    socket.on('state', s => { gs = s; relayout(); render(); buildSidebar(); });
 
     joinBtn.onclick = ()=>{
       me.room = (document.getElementById('room').value||'alpha').trim();
@@ -139,6 +171,7 @@
       e.preventDefault();
     });
 
+    window.addEventListener('resize', relayout);
     window.addEventListener('beforeunload', () => {
       try { socket.disconnect(); } catch (e) {}
     });
@@ -470,3 +503,4 @@
   </script>
 </body>
 </html>
+
