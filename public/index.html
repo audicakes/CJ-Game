@@ -257,30 +257,34 @@
       endBtn.disabled = !isMyTurn();
 
       // players list
-      playersBox.innerHTML='';
-      for(const name of players){
-        const a = gs.state.actors[name];
-        const card = document.createElement('div'); card.className='playerCard';
-        const head = document.createElement('div'); head.className='playerHeader';
-        const left = document.createElement('div'); left.textContent = name;
-        const right = document.createElement('div'); right.className='turnTag'; right.textContent = (name===turnName)?'Your Turn':'';
-        head.append(left, right);
+    playersBox.innerHTML = '';
+    for (const name of players) {
+    const a = gs.state.actors[name];
+    const card = document.createElement('div'); card.className='playerCard';
+    const head = document.createElement('div'); head.className='playerHeader';
+    const left = document.createElement('div'); left.textContent = name;
+    const right = document.createElement('div'); right.className='turnTag';
+    right.textContent = (name === turnName) ? 'Your Turn' : '';
+    head.append(left, right);
 
-        const hp = document.createElement('div'); hp.className='hp';
-        for(let i=0;i<3;i++){ const pip=document.createElement('div'); pip.className='pip'+(i<a.hp?' on':''); hp.appendChild(pip); }
+    const hp = document.createElement('div'); hp.className='hp';
+    for (let i = 0; i < 3; i++) {
+        const pip = document.createElement('div');
+        pip.className = 'pip' + (i < a.hp ? ' on' : '');
+        hp.appendChild(pip);
+    }
 
-        const invRow = document.createElement('div');
-        const labels=[];
-        if(a.has_deagle) labels.push('Deagle');
-        if(a.has_shotgun) labels.push('Shotgun');
-        if(a.has_agility_boots) labels.push('Agility Boots');
-        if(a.has_scope) labels.push('Scope');
-        if(a.has_shield) labels.push('Shield');
-        if(a.has_grenade && a.grenade_count>0) labels.push(`Grenade (${a.grenade_count})`);
-        invRow.innerHTML = labels.length?('<span class="muted">Items: </span>'+labels.join(', ')):'<span class="muted">No items</span>';
+    // 🔒 Hide other players' items entirely (no labels, no tooltips)
+    const invRow = document.createElement('div');
+    if (name === me.name) {
+        // Show nothing here—your interactive inventory is in "My Items" below
+        invRow.innerHTML = '<span class="muted">Items shown below in “My Items”.</span>';
+    } else {
+        invRow.innerHTML = '<span class="muted">Items are hidden.</span>';
+    }
 
-        card.append(head, hp, invRow);
-        playersBox.appendChild(card);
+    card.append(head, hp, invRow);
+    playersBox.appendChild(card);
       }
 
       // my inventory (interactive with tooltips)
