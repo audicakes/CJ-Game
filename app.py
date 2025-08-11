@@ -1,6 +1,8 @@
 # app.py
 import os
 from flask import Flask
+from flask import send_from_directory
+STATIC_DIR = os.path.join(os.path.dirname(__file__), "public")
 from flask_socketio import SocketIO, emit, join_room
 from game.engine import new_room, join as eng_join, apply_move
 
@@ -26,6 +28,10 @@ socketio = SocketIO(
 rooms = {}  # room_id -> { "players": [], "state": {...}, "turn": 0 }
 
 @app.route("/")
+def index():
+    # Serve the browser client
+    return send_from_directory(STATIC_DIR, "index.html")
+
 def health():
     return "CJ Game server OK"
 
