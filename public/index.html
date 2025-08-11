@@ -207,6 +207,24 @@
       }
       return [...out].map(s=>s.split(',').map(Number));
     }
+    function deagleTilesIgnoreWalls(p){
+        const rng = 4 + (p.has_scope?1:0);
+        const [dc,dr] = DIRS[p.facing]; const out=[]; let c=p.col+dc, r=p.row+dr;
+        for(let i=0;i<rng;i++){ if(!inBounds(c,r)) break; out.push([c,r]); c+=dc; r+=dr; }
+        return out;
+        }
+    function shotgunTilesIgnoreWalls(p){
+        const depth = 2 + (p.has_scope?1:0);
+        const out=[]; const [dc,dr]=DIRS[p.facing];
+        const horiz=(p.facing==='left'||p.facing==='right'), pc=horiz?0:1, pr=horiz?1:0;
+        for(let d=1; d<=depth; d++){
+            for(const side of [-1,0,1]){
+            const c=p.col+dc*d+pc*side, r=p.row+dr*d+pr*side;
+            if(inBounds(c,r)) out.push([c,r]);
+            }
+        }
+        return out;
+        }
     function grenadeTiles(p){
       if(!(p.consumable_selected==='Grenade' && p.grenade_count>0)) return [];
       const [dc,dr]=DIRS[p.facing];
@@ -229,6 +247,7 @@
       Scope: 'Weapons reach +1 tile forward.',
       Shield: 'Blocks the next damage you would take.',
       Grenade: 'Toggle, then right‑click a red tile in the 3×3 slab ahead. Ignores walls. One use.',
+      'Piercing Rounds': 'Toggle. Your NEXT shot (Deagle or Shotgun) ignores walls and can hit multiple enemies. One use.',
     };
 
     function mkPill(text, selectable=false, selected=false, onClick=null, title=''){
@@ -304,6 +323,15 @@
             }, DESCR.Grenade)
           );
         }
+        if (p.has_piercing && p.piercing_count > 0) {
+            const selected = p.consumable_selected === 'Piercing';
+            myInvBox.appendChild(
+                mkPill(`Piercing Rounds (${p.piercing_count})`, true, selected, ()=>{
+                    socket.emit('move', { room: me.room, move:{ type:'toggle_piercing', who: me.name } });
+            }, DESCR['Piercing Rounds'])
+  );
+}
+
         if(myInvBox.children.length===0) myInvBox.innerHTML='<span class="muted">No items</span>';
       } else {
         myInvBox.innerHTML='<span class="muted">Join a room to see your items.</span>';
@@ -381,10 +409,11 @@
           // red action tiles
           ctx.fillStyle = 'rgba(255,99,71,0.55)';
           const reds = [];
-          if(a.has_deagle) reds.push(...deagleTiles(a));
-          if(a.has_shotgun) reds.push(...shotgunTiles(a));
-          if(a.consumable_selected==='Grenade' && a.grenade_count>0) reds.push(...grenadeTiles(a));
-          for(const [c,r] of reds){
+            const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
+            if (a.has_deagle)  reds.push(...(pierce ? deagleTilesIgnoreWalls(a)  : deagleTiles(a)));
+            if (a.has_shotgun) reds.push(...(pierce ? shotgunTilesIgnoreWalls(a) : shotgunTiles(a)));
+            if (a.consumable_selected==='Grenade' && a.grenade_count>0) reds.push(...grenadeTiles(a));
+                for (const [c,r] of reds) ctx.fillRect(c*CELL+6, HUD+r*CELL+6, CELL-12, CELL-12);
             ctx.fillRect(c*CELL+6, HUD+r*CELL+6, CELL-12, CELL-12);
           }
         }
