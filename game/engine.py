@@ -491,7 +491,7 @@ def apply_move(game, move):
                 break
 
         for v in victims:
-            _apply_damage(st, v, 1)
+            _apply_damage(st, v, 2)
 
         _maybe_clover_bonus(st, cur, victims)
 
@@ -527,7 +527,7 @@ def apply_move(game, move):
                 victims.append(name)
 
         for v in victims:
-            _apply_damage(st, v, 1)
+            _apply_damage(st, v, 2)
 
         _maybe_clover_bonus(st, cur, victims)
 
