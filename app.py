@@ -2,6 +2,9 @@
 import os
 from flask import Flask
 from flask_socketio import SocketIO, emit, join_room
+from game.engine import new_room, join as eng_join, apply_move
+
+rooms = {}
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "devkey")
@@ -26,6 +29,10 @@ rooms = {}  # room_id -> { "players": [], "state": {...}, "turn": 0 }
 def health():
     return "CJ Game server OK"
 
+@app.get("/healthz")
+def healthz():
+    return {"ok": True, "version": os.environ.get("GIT_SHA","local")}
+
 @socketio.on("connect")
 def on_connect():
     # Handy to confirm browser actually connects
@@ -33,25 +40,21 @@ def on_connect():
 
 @socketio.on("join")
 def on_join(data):
-    print("join payload:", data)
-    room = str(data["room"])
-    name = str(data["name"])
+    room = str(data["room"]); name = str(data["name"])
     join_room(room)
-    game = rooms.setdefault(room, {"players": [], "state": {}, "turn": 0})
-    if name not in game["players"]:
-        game["players"].append(name)
+    game = rooms.get(room) or new_room()
+    game = eng_join(game, name)
+    rooms[room] = game
     emit("state", game, room=room)
 
 @socketio.on("move")
 def on_move(data):
-    room = str(data["room"])
-    move = data["move"]
+    room = str(data["room"]); move = data["move"]
     game = rooms.get(room)
-    if not game:
-        return
-    # Example: advance turn index
-    if game["players"]:
-        game["turn"] = (game["turn"] + 1) % len(game["players"])
+    if not game: return
+    # server-side validation/authority happens inside engine
+    game = apply_move(game, move)
+    rooms[room] = game
     emit("state", game, room=room)
 
 if __name__ == "__main__":

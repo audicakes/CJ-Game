@@ -1,0 +1,44 @@
+<!doctype html>
+<html>
+  <body>
+    <h1>CJ Game Client</h1>
+
+    <label>Room: <input id="room" value="alpha"></label>
+    <label>Name: <input id="name" value="Kevin"></label>
+    <button id="joinBtn">Join</button>
+    <button id="moveBtn" disabled>End Turn</button>
+    <pre id="log"></pre>
+
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <script>
+      const out = document.getElementById("log");
+      const log = (...a) => { out.textContent += a.join(" ") + "\n"; console.log(...a); };
+      const socket = io("https://cj-game.onrender.com", { reconnectionAttempts: 3, timeout: 5000 });
+
+      let currentRoom = null;
+
+      socket.on("connect", () => log("[connect]", socket.id));
+      socket.on("connect_error", (e) => log("[connect_error]", e.message));
+      socket.on("disconnect", (r) => log("[disconnect]", r));
+
+      socket.on("state", (state) => {
+        log("[state]", JSON.stringify(state));
+        // enable move if there are players
+        document.getElementById("moveBtn").disabled = !state.players || state.players.length === 0;
+      });
+
+      document.getElementById("joinBtn").onclick = () => {
+        currentRoom = document.getElementById("room").value.trim() || "alpha";
+        const name = document.getElementById("name").value.trim() || "Player";
+        socket.emit("join", { room: currentRoom, name });
+        log("[join sent]", currentRoom, name);
+      };
+
+      document.getElementById("moveBtn").onclick = () => {
+        if (!currentRoom) return;
+        socket.emit("move", { room: currentRoom, move: { type: "end_turn" } });
+        log("[move sent]", currentRoom);
+      };
+    </script>
+  </body>
+</html>
