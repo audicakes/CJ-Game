@@ -61,6 +61,7 @@
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
+    const HUD_TITLE = 'CJ Game v1.1 by Kevin Zhang (shoutout BISV COKERAMS)';
     // --- image assets ---
     const tex = { wall: new Image(), water: new Image() };
     tex.wall.onload  = () => render && render();
@@ -333,18 +334,26 @@
       const cols=gs.state.grid.cols, rows=gs.state.grid.rows;
       const w=cols*CELL, h=rows*CELL;
 
-      // bg + hud
-      ctx.fillStyle = '#0f1620'; ctx.fillRect(0,0,w,h+HUD);
-      ctx.fillStyle = '#101a28'; ctx.fillRect(0,0,w,HUD);
-      ctx.fillStyle = '#9ab'; ctx.font = '14px system-ui';
-      ctx.fillText('Controls: Left Click face · Arrows move (Shift=2 with Boots) · Right Click shoot/throw · Q self‑KO · R restart', 12, 34);
+    // bg + hud
+    ctx.fillStyle = '#0f1620'; ctx.fillRect(0,0,w,h+HUD);
+    ctx.fillStyle = '#101a28'; ctx.fillRect(0,0,w,HUD);
 
-      // grid
+    // Title on HUD
+    ctx.fillStyle = '#e7edf5';
+    ctx.font = 'bold 16px system-ui';
+    ctx.fillText(HUD_TITLE, 12, 20);
+
+    // Controls line
+    ctx.fillStyle = '#9ab';
+    ctx.font = '14px system-ui';
+    ctx.fillText('Controls: Left Click face · Arrows move (Shift=2 with Boots) · Right Click shoot/throw · Q self‑KO · R restart', 12, 34);
+      
+    // grid
       ctx.strokeStyle = '#223042'; ctx.lineWidth=1;
       for(let c=0;c<=cols;c++){ ctx.beginPath(); ctx.moveTo(c*CELL, HUD); ctx.lineTo(c*CELL, HUD+h); ctx.stroke(); }
       for(let r=0;r<=rows;r++){ ctx.beginPath(); ctx.moveTo(0, HUD+r*CELL); ctx.lineTo(w, HUD+r*CELL); ctx.stroke(); }
 
-      // obstacles
+    // obstacles
     for (const ob of (gs.state.obstacles || [])) {
     const x = ob.col * CELL + 2, y = HUD + ob.row * CELL + 2, s = CELL - 4;
 

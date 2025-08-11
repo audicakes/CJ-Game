@@ -13,7 +13,7 @@
     <script>
       const out = document.getElementById("log");
       const log = (...a) => { out.textContent += a.join(" ") + "\n"; console.log(...a); };
-      const socket = io("http://127.0.0.1:5050", { reconnectionAttempts: 3, timeout: 5000 });
+      const socket = io("https://cj-game.onrender.com", { reconnectionAttempts: 3, timeout: 5000 });
 
       let currentRoom = null;
 
