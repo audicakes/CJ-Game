@@ -6,15 +6,15 @@
   <style>
     :root {
       --bg:#0b1118; --panel:#0f1620; --hud:#101a28; --muted:#9ab; --line:#223042;
-      --border:#263446; --green:rgba(144,238,144,.55); --red:rgba(255,99,71,.55);
+      --border:#263446;
     }
     body { background:var(--bg); color:#e7edf5; font-family: ui-sans-serif, system-ui; margin:16px; }
     .top { display:flex; gap:12px; align-items:center; margin-bottom:10px; flex-wrap:wrap; }
     label { margin-right:10px }
     input, button { font-size:16px; }
     .wrap { display:flex; gap:16px; align-items:flex-start; }
-    /* Left panel now expands and lets the canvas size itself */
-    #left { background:var(--panel); border:1px solid var(--border); flex:1; display:flex; flex-direction:column; }
+    /* Let the left panel size to the canvas (no forced flex stretch). */
+    #left { background:var(--panel); border:1px solid var(--border); flex:0 0 auto; display:flex; flex-direction:column; }
     #hudbar { background:var(--hud); padding:8px 12px; border-bottom:1px solid var(--border); }
     canvas { display:block; }
     #sidebar { width:280px; border:1px solid var(--border); background:#0f1620; padding:12px; border-radius:6px; }
@@ -45,7 +45,7 @@
   <div class="wrap">
     <div id="left">
       <div id="hudbar"><b id="turnText">Turn: —</b></div>
-      <!-- Canvas size is set dynamically in JS -->
+      <!-- size set via JS to fill height -->
       <canvas id="cv"></canvas>
     </div>
 
@@ -78,33 +78,38 @@
     const playersBox = document.getElementById('players'); const myInvBox = document.getElementById('myInv');
     const turnText = document.getElementById('turnText'); const tooltip = document.getElementById('tooltip');
 
-    // dynamic sizing
-    let CELL = 48;                // will be recalculated
-    const HUD = 40;               // on-canvas HUD height
-    const MIN_CELL = 36;          // keep tiles readable
-    const MAX_CELL = 96;          // avoid cartoonishly huge tiles
+    // dynamic grid sizing (HEIGHT-FIRST)
+    let CELL = 48;
+    const HUD = 40;
+    const MIN_CELL = 36, MAX_CELL = 96;
 
     function relayout() {
       if (!gs) return;
-      const left = document.getElementById('left');
-      const cols = gs.state.grid.cols;
+
       const rows = gs.state.grid.rows;
+      const cols = gs.state.grid.cols;
 
-      // Available width is whatever the left panel currently has via flex.
-      const availW = Math.max(200, left.clientWidth);
+      // Compute available vertical space from canvas top to bottom of viewport.
+      const left = document.getElementById('left');
+      // Ensure the left panel is as wide as the canvas (no stretching).
+      left.style.width = ''; // let canvas dictate width
 
-      // Available height: viewport minus stuff above the canvas.
-      const topY = cv.getBoundingClientRect().top || left.getBoundingClientRect().top;
-      const availH = Math.max(200, window.innerHeight - topY - 24); // 24px bottom padding
+      // Where is the canvas (or left panel) starting?
+      const topY = left.getBoundingClientRect().top;
+      // A small bottom margin so we never require vertical scrolling.
+      const bottomPad = 20;
+      const availH = Math.max(200, window.innerHeight - topY - bottomPad);
 
-      const cellByW = Math.floor(availW / cols);
+      // Choose CELL purely by height.
       const cellByH = Math.floor((availH - HUD) / rows);
-      const nextCell = Math.max(MIN_CELL, Math.min(MAX_CELL, Math.min(cellByW, cellByH)));
+      const nextCell = Math.max(MIN_CELL, Math.min(MAX_CELL, cellByH));
 
-      if (nextCell !== CELL || cv.width === 0) {
+      if (nextCell !== CELL || cv.height === 0) {
         CELL = nextCell;
-        cv.width  = cols * CELL;
         cv.height = HUD + rows * CELL;
+        cv.width  = cols * CELL; // width may exceed leftover space; that's okay.
+        // Make left panel match canvas size so hit‑testing uses real pixels.
+        left.style.width = cv.width + 'px';
         render();
       }
     }
@@ -341,10 +346,10 @@
         myInvBox.innerHTML='';
         if(p.has_deagle)  myInvBox.appendChild(mkPill('Deagle', false, false, null, DESCR.Deagle));
         if (p.has_shotgun) {
-            const cd = p.shotgun_cooldown || 0;
-            myInvBox.appendChild(
-                mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, false, null, "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.")
-            );
+          const cd = p.shotgun_cooldown || 0;
+          myInvBox.appendChild(
+            mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, false, null, "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.")
+          );
         }
         if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
         if(p.has_scope)   myInvBox.appendChild(mkPill('Scope', false, false, null, DESCR.Scope));
@@ -503,4 +508,3 @@
   </script>
 </body>
 </html>
-
