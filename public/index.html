@@ -4,55 +4,54 @@
   <meta charset="utf-8" />
   <title>CJ Game (Browser)</title>
   <style>
-    body { background:#0b1118; color:#e7edf5; font-family: system-ui, sans-serif; }
-    .row { margin: 8px 0; }
+    body { background:#0b1118; color:#e7edf5; font-family: ui-sans-serif, system-ui; margin:20px; }
+    label { margin-right:12px }
     input, button { font-size: 16px; }
+    #panel { margin:10px 0 6px }
+    #hud { margin-top:6px; }
     canvas { background:#0f1620; display:block; margin-top:10px; border:1px solid #263446; }
+    #inv { margin-top:8px; }
+    .inv-item { display:inline-block; padding:4px 8px; margin:2px 6px 0 0; border:1px solid #2a3a4f; border-radius:6px; cursor:pointer; }
+    .inv-item.sel { background:#1b2838; border-color:#3b5a7f; }
+    .muted { color:#9ab; }
   </style>
 </head>
 <body>
   <h1>CJ Game (Browser)</h1>
-  <div class="row">
+
+  <div id="panel">
     <label>Room <input id="room" value="alpha" /></label>
     <label>Name <input id="name" value="Player" /></label>
     <button id="joinBtn">Join</button>
     <button id="endBtn" disabled>End Turn</button>
   </div>
-  <div class="row" id="info"></div>
+
+  <div id="hud" class="muted">Left Click: face | Arrows: move | Right Click: shoot/throw (if valid)</div>
+  <div id="turnInfo"></div>
+  <div id="inv"></div>
+
   <canvas id="cv" width="900" height="650"></canvas>
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
-    // Connect to same origin (Render or local), no hardcoded URL
+    // connect to same origin (works locally and on Render)
     const socket = io({ withCredentials:false });
+
     const cv = document.getElementById('cv');
     const ctx = cv.getContext('2d');
-    const info = document.getElementById('info');
     const joinBtn = document.getElementById('joinBtn');
     const endBtn = document.getElementById('endBtn');
+    const inv = document.getElementById('inv');
+    const turnInfo = document.getElementById('turnInfo');
+
     const me = { room:null, name:null, id:null };
+    let gs = null;           // server state
+    let hoverCell = null;    // mouse hover cell
 
-    let gs = null; // latest server state
+    const CELL = 48, HUD = 40;
 
-    socket.on('connect', () => {
-      me.id = socket.id;
-      log('connected', me.id);
-    });
-    socket.on('state', (state) => {
-      gs = state;
-      render();
-      refreshUI();
-    });
-    socket.on('connect_error', (e) => log('connect_error', e.message));
-
-    function log(...a){ info.textContent = a.join(' '); }
-
-    function refreshUI(){
-      if(!gs) { endBtn.disabled = true; return; }
-      const players = gs.players || [];
-      const cur = players.length ? players[gs.turn % players.length] : null;
-      endBtn.disabled = !(me.name && cur === me.name);
-    }
+    socket.on('connect', () => { me.id = socket.id; });
+    socket.on('state', (state) => { gs = state; render(); updateUI(); });
 
     joinBtn.onclick = () => {
       me.room = document.getElementById('room').value.trim() || 'alpha';
@@ -60,33 +59,52 @@
       socket.emit('join', { room: me.room, name: me.name });
     };
     endBtn.onclick = () => {
-      if(!me.room || !me.name) return;
+      if(!isMyTurn()) return;
       socket.emit('move', { room: me.room, move:{ type:'end_turn', who:me.name } });
     };
 
-    // click: face toward tile
+    cv.addEventListener('mousemove', (e) => { hoverCell = gridFromEvent(e); render(); });
+    cv.addEventListener('contextmenu', (e) => e.preventDefault()); // enable right-click actions
     cv.addEventListener('click', (e) => {
-      const p = getGridFromMouse(e);
+      if(!gs || !isJoined()) return;
+      const p = gridFromEvent(e);
       if(!p || !isMyTurn()) return;
-      const meActor = gs.state.actors[me.name];
-      if(!meActor) return;
-      const dx = p.col - meActor.col;
-      const dy = p.row - meActor.row;
-      if(dx === 0 && dy === 0) return;
-      const dir = Math.abs(dx) >= Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
-      socket.emit('move', { room: me.room, move:{ type:'face', who:me.name, dir:dir } });
+      const my = gs.state.actors[me.name];
+      const dx = p.col - my.col, dy = p.row - my.row;
+      if(dx || dy){
+        const dir = Math.abs(dx) >= Math.abs(dy) ? (dx>0?'right':'left') : (dy>0?'down':'up');
+        socket.emit('move', { room: me.room, move:{ type:'face', who:me.name, dir } });
+      }
+    });
+    // right-click: shoot / grenade / shotgun
+    cv.addEventListener('mousedown', (e) => {
+      if(e.button !== 2) return; // right click
+      if(!gs || !isJoined() || !isMyTurn()) return;
+      const p = gridFromEvent(e); if(!p) return;
+      const you = gs.state.actors[me.name];
+      // grenade selected?
+      if(you.consumable_selected === 'Grenade' && you.grenade_count > 0){
+        socket.emit('move', { room: me.room, move:{ type:'throw_grenade', who: me.name, target:{ col:p.col, row:p.row } } });
+        return;
+      }
+      // otherwise: if you have deagle, try shoot; else try shotgun
+      if(you.has_deagle){
+        socket.emit('move', { room: me.room, move:{ type:'shoot', who: me.name } });
+      }else if(you.has_shotgun){
+        socket.emit('move', { room: me.room, move:{ type:'shotgun', who: me.name } });
+      }
     });
 
-    // arrows: step one tile (consumes turn)
     window.addEventListener('keydown', (e) => {
-      if(!isMyTurn()) return;
-      const k = e.key;
-      const dir = (k==='ArrowLeft'?'left':k==='ArrowRight'?'right':k==='ArrowUp'?'up':k==='ArrowDown'?'down':null);
+      if(!isJoined() || !isMyTurn()) return;
+      const key = e.key;
+      const dir = (key==='ArrowLeft'?'left':key==='ArrowRight'?'right':key==='ArrowUp'?'up':key==='ArrowDown'?'down':null);
       if(!dir) return;
       e.preventDefault();
-      socket.emit('move', { room: me.room, move:{ type:'step', who:me.name, dir:dir } });
+      socket.emit('move', { room: me.room, move:{ type:'step', who: me.name, dir } });
     });
 
+    function isJoined(){ return !!(me.room && me.name); }
     function isMyTurn(){
       if(!gs || !me.name) return false;
       const players = gs.players || [];
@@ -94,17 +112,48 @@
       return players[gs.turn % players.length] === me.name;
     }
 
-    function getGridFromMouse(ev){
+    function gridFromEvent(ev){
       if(!gs) return null;
       const rect = cv.getBoundingClientRect();
       const x = ev.clientX - rect.left, y = ev.clientY - rect.top;
       const cols = gs.state.grid.cols, rows = gs.state.grid.rows;
-      const cell = 48, hud = 40, margin = 1;
-      if(y < hud) return null;
-      const col = Math.floor(x / cell);
-      const row = Math.floor((y - hud) / cell);
+      if(y < HUD) return null;
+      const col = Math.floor(x / CELL);
+      const row = Math.floor((y - HUD) / CELL);
       if(col < 0 || col >= cols || row < 0 || row >= rows) return null;
       return { col, row };
+    }
+
+        function updateUI(){
+      if(!gs){ endBtn.disabled = true; inv.innerHTML=''; turnInfo.textContent=''; return; }
+      const players = gs.players || [];
+      const cur = players.length ? players[gs.turn % players.length] : '—';
+      turnInfo.textContent = `Turn: ${cur}`;
+      endBtn.disabled = !isMyTurn();
+
+      // inventory pills (click "Grenade" to toggle)
+      inv.innerHTML = '';
+      if (me.name && gs.state?.actors?.[me.name]) {
+        const p = gs.state.actors[me.name];
+        const add = (key, label, selected) => {
+          const el = document.createElement('span');
+          el.className = 'inv-item' + (selected ? ' sel' : '');
+          el.textContent = label;
+          el.onclick = () => {
+            if (key === 'Grenade') {
+              socket.emit('move', { room: me.room, move: { type:'toggle_grenade', who: me.name }});
+            }
+          };
+          inv.appendChild(el);
+        };
+        if (p.has_deagle)  add('Deagle',  'Deagle',  false);
+        if (p.has_shotgun) add('Shotgun', 'Shotgun', false);
+        if (p.has_agility_boots) add('Boots', 'Agility Boots', false);
+        if (p.has_scope)   add('Scope',   'Scope', false);
+        if (p.has_shield)  add('Shield',  'Shield', false);
+        if (p.has_grenade && p.grenade_count > 0)
+          add('Grenade', `Grenade (${p.grenade_count})`, p.consumable_selected === 'Grenade');
+      }
     }
 
     function render(){
@@ -112,10 +161,12 @@
       if(!gs) return;
 
       const cols = gs.state.grid.cols, rows = gs.state.grid.rows;
-      const cell = 48, hud = 40, w = cols*cell, h = rows*cell;
-      // background & HUD
+      const cell = CELL, hud = HUD, w = cols*cell, h = rows*cell;
+
+      // background + HUD
       ctx.fillStyle = '#0f1620'; ctx.fillRect(0,0,w,h+hud);
       ctx.fillStyle = '#101a28'; ctx.fillRect(0,0,w,hud);
+
       // turn text
       const players = gs.players || [];
       const cur = players.length ? players[gs.turn % players.length] : '—';
@@ -124,33 +175,67 @@
 
       // grid
       ctx.strokeStyle = '#223042'; ctx.lineWidth = 1;
-      for(let c=0;c<=cols;c++){ ctx.beginPath(); ctx.moveTo(c*cell, hud); ctx.lineTo(c*cell, hud+h); ctx.stroke(); }
-      for(let r=0;r<=rows;r++){ ctx.beginPath(); ctx.moveTo(0, hud+r*cell); ctx.lineTo(w, hud+r*cell); ctx.stroke(); }
+      for (let c = 0; c <= cols; c++) {
+        ctx.beginPath(); ctx.moveTo(c * cell, hud); ctx.lineTo(c * cell, hud + h); ctx.stroke();
+      }
+      for (let r = 0; r <= rows; r++) {
+        ctx.beginPath(); ctx.moveTo(0, hud + r * cell); ctx.lineTo(w, hud + r * cell); ctx.stroke();
+      }
+
+      // obstacles (draw simple textures/colors)
+      for (const ob of (gs.state.obstacles || [])) {
+        const x = ob.col * cell, y = hud + ob.row * cell, pad = 2;
+        if (ob.type === 'wall') {
+          ctx.fillStyle = '#6b4b2a';
+          ctx.fillRect(x+pad, y+pad, cell-2*pad, cell-2*pad);
+        } else if (ob.type === 'water') {
+          ctx.fillStyle = '#1976d2';
+          ctx.fillRect(x+pad, y+pad, cell-2*pad, cell-2*pad);
+        }
+      }
+
+      // items (mystery boxes)
+      for (const it of (gs.state.items || [])) {
+        const x = it.col * cell, y = hud + it.row * cell, pad = 6;
+        ctx.fillStyle = (it.type === 'mystery_weapon') ? '#eab308' : '#22c55e';
+        ctx.fillRect(x+pad, y+pad, cell-2*pad, cell-2*pad);
+        ctx.fillStyle = '#0b1118'; ctx.font = 'bold 16px system-ui';
+        const icon = (it.type === 'mystery_weapon') ? 'W' : 'I';
+        const tw = ctx.measureText(icon).width;
+        ctx.fillText(icon, x + cell/2 - tw/2, y + cell/2 + 6);
+      }
 
       // players
-      const actors = gs.state.actors || {};
-      for(const [name,a] of Object.entries(actors)){
-        const cx = a.col*cell + cell/2;
-        const cy = hud + a.row*cell + cell/2;
-        const radius = Math.floor(cell*0.32);
+      for (const [name,a] of Object.entries(gs.state.actors || {})) {
+        if (a.hp <= 0) continue;
+        const cx = a.col*cell + cell/2, cy = hud + a.row*cell + cell/2;
+        const r = Math.floor(cell*0.32);
         // body
         const color = `rgb(${a.color[0]},${a.color[1]},${a.color[2]})`;
-        ctx.fillStyle = color;
-        ctx.beginPath(); ctx.arc(cx, cy, radius, 0, Math.PI*2); ctx.fill();
+        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI*2); ctx.fill();
         // eyes
         ctx.fillStyle = '#fff';
-        const eyeOffset = radius*0.35, fwd = radius*0.35;
-        let e1x=cx-eyeOffset, e1y=cy, e2x=cx+eyeOffset, e2y=cy;
+        const eo = r*0.35, fwd = r*0.35;
+        let e1x=cx-eo, e1y=cy, e2x=cx+eo, e2y=cy;
         if(a.facing==='left'){ e1x-=fwd; e2x-=fwd; }
         if(a.facing==='right'){ e1x+=fwd; e2x+=fwd; }
         if(a.facing==='up'){ e1y-=fwd; e2y-=fwd; }
         if(a.facing==='down'){ e1y+=fwd; e2y+=fwd; }
-        const er = Math.max(3, radius*0.12|0);
+        const er = Math.max(3, r*0.12|0);
         ctx.beginPath(); ctx.arc(e1x,e1y,er,0,Math.PI*2); ctx.fill();
         ctx.beginPath(); ctx.arc(e2x,e2y,er,0,Math.PI*2); ctx.fill();
-        // label
+
+        // name label
         ctx.fillStyle = '#e7edf5'; ctx.font = '12px system-ui';
-        ctx.fillText(name, cx - ctx.measureText(name).width/2, cy + radius + 14);
+        const tw = ctx.measureText(name).width;
+        ctx.fillText(name, cx - tw/2, cy + r + 14);
+      }
+
+      // hover highlight
+      if (hoverCell) {
+        ctx.strokeStyle = '#88a';
+        ctx.lineWidth = 2;
+        ctx.strokeRect(hoverCell.col*cell+1, hud+hoverCell.row*cell+1, cell-2, cell-2);
       }
     }
   </script>
