@@ -5,8 +5,13 @@ from flask import send_from_directory
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "public")
 from flask_socketio import SocketIO, emit, join_room
 from game.engine import new_room, join as eng_join, apply_move
+from flask import request
+from flask_socketio import leave_room
+
 
 rooms = {}
+clients = {}  # sid -> {"room": str, "name": str}
+
 
 app = Flask(__name__)
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "devkey")
@@ -51,6 +56,7 @@ def on_join(data):
     game = rooms.get(room) or new_room()
     game = eng_join(game, name)
     rooms[room] = game
+    clients[request.sid] = {"room": room, "name": name}
     emit("state", game, room=room)
 
 @socketio.on("move")
@@ -62,6 +68,48 @@ def on_move(data):
     game = apply_move(game, move)
     rooms[room] = game
     emit("state", game, room=room)
+
+@socketio.on("disconnect")
+def on_disconnect():
+    info = clients.pop(request.sid, None)
+    if not info:
+        return
+    room = info["room"]; name = info["name"]
+    game = rooms.get(room)
+    leave_room(room)
+
+    if not game:
+        return
+
+    game = _remove_player_from_game(game, name)
+    # If room is empty, drop it; otherwise broadcast new state
+    if not game["players"]:
+        rooms.pop(room, None)
+    else:
+        rooms[room] = game
+        emit("state", game, room=room)
+
+def _remove_player_from_game(game, name):
+    players = game.get("players", [])
+    actors  = game["state"].get("actors", {})
+    if name not in players and name not in actors:
+        return game  # nothing to do
+
+    # Remove from lists
+    idx_removed = players.index(name) if name in players else None
+    if name in players:
+        players.remove(name)
+    actors.pop(name, None)
+
+    # Fix turn pointer
+    if players:
+        if idx_removed is not None and game["turn"] > idx_removed:
+            game["turn"] -= 1
+        game["turn"] %= len(players)
+    else:
+        game["turn"] = 0
+
+    return game
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", "5050"))

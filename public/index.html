@@ -61,6 +61,13 @@
 
   <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
   <script>
+    // --- image assets ---
+    const tex = {
+    wall: new Image(),
+    water: new Image()
+    };
+    tex.wall.src  = 'wall.png';
+    tex.water.src = 'water.png';
     // --- socket / state ---
     const socket = io({ withCredentials:false });
     const cv = document.getElementById('cv'); const ctx = cv.getContext('2d');
@@ -131,6 +138,11 @@
       socket.emit('move', { room: me.room, move:{ type:'step', who: me.name, dir, steps: wantTwo ? 2 : 1 } });
       e.preventDefault();
     });
+
+    window.addEventListener('beforeunload', () => {
+        try { socket.disconnect(); } catch (e) {}
+    });
+
 
     // --- client helpers (highlights only) ---
     const DIRS = { left:[-1,0], right:[1,0], up:[0,-1], down:[0,1] };
@@ -330,11 +342,18 @@
       for(let r=0;r<=rows;r++){ ctx.beginPath(); ctx.moveTo(0, HUD+r*CELL); ctx.lineTo(w, HUD+r*CELL); ctx.stroke(); }
 
       // obstacles
-      for(const ob of (gs.state.obstacles||[])){
-        const x=ob.col*CELL+2, y=HUD+ob.row*CELL+2, s=CELL-4;
-        ctx.fillStyle = (ob.type==='wall') ? '#6b4b2a' : '#1976d2';
-        ctx.fillRect(x,y,s,s);
-      }
+    for (const ob of (gs.state.obstacles || [])) {
+    const x = ob.col * CELL + 2, y = HUD + ob.row * CELL + 2, s = CELL - 4;
+
+    // If image isn't loaded yet, fall back to a flat color once
+    const img = (ob.type === 'wall') ? tex.wall : tex.water;
+    if (img.complete && img.naturalWidth > 0) {
+        ctx.drawImage(img, x, y, s, s);
+    } else {
+        ctx.fillStyle = (ob.type === 'wall') ? '#6b4b2a' : '#1976d2';
+        ctx.fillRect(x, y, s, s);
+    }
+    }
 
       // highlights for current player
       const players = gs.players||[];
