@@ -382,15 +382,18 @@
       }
 
       // items
-      for(const it of (gs.state.items||[])){
-        const x=it.col*CELL+8, y=HUD+it.row*CELL+8, s=CELL-16;
-        ctx.fillStyle = (it.type==='mystery_weapon') ? '#eab308' : '#22c55e';
-        ctx.fillRect(x,y,s,s);
-        ctx.fillStyle = '#0b1118'; ctx.font='bold 16px system-ui';
-        const icon = (it.type==='mystery_weapon')?'W':'I';
+      for (const it of (gs.state.items || [])) {
+        const x = it.col * CELL + 8, y = HUD + it.row * CELL + 8, s = CELL - 16;
+        ctx.fillStyle = (it.type === 'mystery_weapon')
+            ? 'rgba(234,179,8,0.25)'   // gold-ish, low opacity
+            : 'rgba(34,197,94,0.25)';  // green-ish, low opacity
+        ctx.fillRect(x, y, s, s);
+        ctx.fillStyle = '#0b1118';
+        ctx.font = 'bold 16px system-ui';
+        const icon = (it.type === 'mystery_weapon') ? 'W' : 'I';
         const tw = ctx.measureText(icon).width;
-        ctx.fillText(icon, x + s/2 - tw/2, y + s/2 + 6);
-      }
+        ctx.fillText(icon, x + s / 2 - tw / 2, y + s / 2 + 6);
+        }
 
       // players
       for(const [name,a] of Object.entries(gs.state.actors||{})){
