@@ -175,11 +175,11 @@ def join(game, name):
         "col": col, "row": row, "facing": "right",
         "hp": MAX_HP,
         # inventory/flags
-        "has_deagle": False, "has_shotgun": False, "has_uzis": False,
+        "has_deagle": False, "has_shotgun": False, "has_uzis": False, "has_quickshot": False,
         "has_agility_boots": False, "has_scope": False, "has_shield": False,
         "has_grenade": False, "grenade_count": 0, "consumable_selected": None,
         "last_water_pos": None, "has_piercing": False, "piercing_count": 0,
-        "has_lucky_clover": False, "shotgun_cooldown": 0,
+        "has_lucky_clover": False, "shotgun_cooldown": 0, "qs_move_used": False
 
     }
     g["players"].append(name)
@@ -347,15 +347,19 @@ def _pickup_if_item(st, p):
         return
     t = it["type"]
     consumed = True
+    #kev
     if t == "mystery_weapon":
-        # Only one weapon at a time
+        # only one weapon at a time
         p["has_deagle"] = False
         p["has_shotgun"] = False
         p["has_uzis"]   = False
-        give = random.choice(["deagle", "shotgun", "uzis"])
-        if give == "deagle":  p["has_deagle"]  = True
-        elif give == "shotgun": p["has_shotgun"] = True
-        else:                 p["has_uzis"]    = True
+        p["has_quickshot"] = False
+        give = random.choice(["deagle", "shotgun", "uzis", "quickshot"])
+        if give == "deagle":      p["has_deagle"] = True
+        elif give == "shotgun":   p["has_shotgun"] = True
+        elif give == "uzis":      p["has_uzis"] = True
+        else:                     p["has_quickshot"] = True
+
     elif t == "mystery_item":
         picks = []
         if not p["has_agility_boots"]: picks.append("agility")
@@ -419,6 +423,8 @@ def _end_turn_bookkeeping(st, name):
     # decrement shotgun cooldown if active
     if p.get("shotgun_cooldown", 0) > 0:
         p["shotgun_cooldown"] -= 1
+    # allow Quickshot free-move again next turn
+    p["qs_move_used"] = False
 
 def _advance_turn(g):
     st = g["state"]
@@ -438,9 +444,9 @@ def _restart(g):
     st["game_over"] = False
     # Reset stats/inventory
     for a in st["actors"].values():
-        a.update({
+        a.update({ #kev
             "hp": MAX_HP,
-            "has_deagle": False, "has_shotgun": False, "has_uzis": False,
+            "has_deagle": False, "has_shotgun": False, "has_uzis": False, "has_quickshot": False, "qs_move_used": False,
             "has_agility_boots": False, "has_scope": False, "has_shield": False,
             "has_grenade": False, "grenade_count": 0, "has_piercing": False, "piercing_count": 0,
             "consumable_selected": None, "last_water_pos": None, "facing": "right",
@@ -515,6 +521,10 @@ def apply_move(game, move):
     you = st["actors"].get(cur)
     if not you or you["hp"] <= 0:
         return g
+    
+    # Quickshot gating: after using the free move, only face/aim, quickshot, or end_turn are allowed
+    if you.get("has_quickshot") and you.get("qs_move_used", False) and t not in ("face", "quickshot", "end_turn"):
+        return g
 
     if t == "self_ko":
         _apply_damage(st, cur, you["hp"])
@@ -531,6 +541,9 @@ def apply_move(game, move):
     if t == "step":
         d = move.get("dir")
         steps = int(move.get("steps", 1))
+        # Quickshot rule: after the free move, you cannot step again this turn
+        if you.get("has_quickshot") and you.get("qs_move_used", False):
+            return g
         if d in DIRECTIONS:
             dc, dr = DIRECTIONS[d]
             if steps not in (1, 2):
@@ -552,6 +565,10 @@ def apply_move(game, move):
             if ok:
                 you["col"], you["row"] = c, r
                 _pickup_if_item(st, you)
+                # Quickshot: one free move that does NOT end the turn
+                if you.get("has_quickshot") and not you.get("qs_move_used", False):
+                    you["qs_move_used"] = True
+                    return g
         _advance_turn(g)
         return g
 
@@ -572,7 +589,7 @@ def apply_move(game, move):
             you["consumable_selected"] = None if you["consumable_selected"] == "Scope" else "Scope"
         return g
 
-
+    #kev
     if t == "shoot" and you["has_deagle"]:
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
         tiles = weapon_tiles_ignore_walls(
@@ -649,7 +666,6 @@ def apply_move(game, move):
             )
             if pierce else _uzis_tiles(st, you)
         )
-        
         victims = []
         for name, a in st["actors"].items():
             if name == cur or a["hp"] <= 0:
@@ -667,6 +683,22 @@ def apply_move(game, move):
                     you["consumable_selected"] = None
             else:
                 you["consumable_selected"] = "Piercing"
+        _advance_turn(g)
+        return g
+    
+    if t == "quickshot" and you.get("has_quickshot"):
+        # range: exactly 1 tile forward, 1 damage
+        dc, dr = DIRECTIONS[you["facing"]]
+        c, r = you["col"] + dc, you["row"] + dr
+        victims = []
+        for name, a in st["actors"].items():
+            if name == cur or a["hp"] <= 0:
+                continue
+            if a["col"] == c and a["row"] == r:
+                victims.append(name)
+        for v in victims:
+            _apply_damage(st, v, 1)
+        _maybe_clover_bonus(st, cur, victims)
         _advance_turn(g)
         return g
 

@@ -143,6 +143,11 @@
       if(e.button !== 2 || !gs || !isMyTurn()) return;
       const p = gridFromEvent(e); if(!p) return;
       const you = gs.state.actors[me.name];
+      // If you've used Quickshot's free move, right-click must fire Quickshot
+      if (you.has_quickshot && you.qs_move_used) {
+        socket.emit('move', { room: me.room, move:{ type:'quickshot', who: me.name } });
+        return;
+    }
       if(you.consumable_selected === 'Grenade' && you.grenade_count > 0){
         socket.emit('move', { room: me.room, move:{ type:'throw_grenade', who: me.name, target:{ col:p.col, row:p.row } } });
       } else if (you.has_deagle){
@@ -151,6 +156,8 @@
         socket.emit('move', { room: me.room, move:{ type:'shotgun', who: me.name } });
         } else if (you.has_uzis){
         socket.emit('move', { room: me.room, move:{ type:'uzi', who: me.name } });
+        } else if (you.has_quickshot){
+        socket.emit('move', { room: me.room, move:{ type:'quickshot', who: me.name } });
         }
     });
 
@@ -394,10 +401,11 @@
     }
 
     // tooltips + inventory UI
-    const DESCR = {
+    const DESCR = { //kev
       Deagle: 'Right‑click a red tile on your facing line to shoot.',
       Shotgun: 'Right‑click a red tile in the 3‑wide fan ahead to blast.',
       'Akimbo Uzis': 'Right-click to spray two lanes (3 deep) excluding center; walls can block. Scope adds +1 depth. Deals 1 dmg.',
+      'Quickshot Pistol': 'Can move and shoot on same turn. Range: 1 tile forward, deals 1 dmg.',
       'Agility Boots': 'Hold Shift while moving to step 2 tiles.',
       Scope: 'Toggle to add +1 range/depth to weapons.',
       Shield: 'Blocks the next damage you would take.',
@@ -478,7 +486,7 @@
         playersBox.appendChild(card);
       }
 
-      // my inventory (interactive)
+      // my inventory (interactive) kev
       if(me.name && gs.state.actors[me.name]){
         const p = gs.state.actors[me.name];
         myInvBox.innerHTML='';
@@ -490,6 +498,7 @@
             );
         }
         if (p.has_uzis)  myInvBox.appendChild(mkPill('Akimbo Uzis', false, false, null, DESCR['Akimbo Uzis']));
+        if (p.has_quickshot) myInvBox.appendChild(mkPill('Quickshot Pistol', false, false, null, DESCR['Quickshot Pistol']));
         if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
         if (p.has_scope) {
             const selected = p.consumable_selected === 'Scope';
@@ -587,8 +596,10 @@
           }
         // red action tiles (respect Piercing toggle + per-weapon cooldown)
         const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
+        const quickshotLocked = !!(a.has_quickshot && a.qs_move_used);
         const actionTiles = [];
 
+        //kev
         // Deagle
         if (a.has_deagle) {
             const rng = 4 + (scopeOn(a) ? 1 : 0);
@@ -609,6 +620,13 @@
             const depth = 3 + (scopeOn(a) ? 1 : 0);
             const tiles = weaponTilesGeneric(a, 'fan', depth, 3, pierce, true);
             for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'uzis', disabled: false });
+        }
+
+        // Quickshot (range 1 forward)
+        if (a.has_quickshot) {
+            const [dc, dr] = DIRS[a.facing];
+            const c = a.col + dc, r = a.row + dr;
+            if (inBounds(c, r)) actionTiles.push({ c, r, weapon: 'quickshot', disabled: false });
         }
 
         // Grenade area (unchanged)
