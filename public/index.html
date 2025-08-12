@@ -39,7 +39,7 @@
     <label>Name <input id="name" value="Player" /></label>
     <button id="joinBtn">Join</button>
     <button id="endBtn" disabled>End Turn</button>
-    <span class="muted">Left Click: face · Arrows move (hold Shift for 2 with Boots) · Right Click: shoot/throw · Q self‑KO · R restart</span>
+    <span class="muted">Left Click: face · WASD move · Right Click: shoot · Q quit · R restart</span>
   </div>
 
   <div class="wrap">
@@ -168,7 +168,7 @@
         return;
       }
 
-      const dir = (e.key==='ArrowLeft'?'left':e.key==='ArrowRight'?'right':e.key==='ArrowUp'?'up':e.key==='ArrowDown'?'down':null);
+      const dir = (e.key==='a'?'left':e.key==='d'?'right':e.key==='w'?'up':e.key==='s'?'down':null);
       if (!dir) return;
       const you = gs.state.actors[me.name];
       const wantTwo = e.shiftKey && you.has_agility_boots;
