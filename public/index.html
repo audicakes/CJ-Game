@@ -306,6 +306,26 @@
       return el;
     }
 
+    // ---- cooldown helpers (generic) ----
+    function isOnCooldown(p, weapon){
+        const key = weapon.toLowerCase() + '_cooldown';
+        if (p.cooldowns && typeof p.cooldowns[weapon] === 'number') return p.cooldowns[weapon] > 0;
+            return (p[key] || 0) > 0; 
+        }
+        function getCooldownTurns(p, weapon){
+        const key = weapon.toLowerCase() + '_cooldown';
+        if (p.cooldowns && typeof p.cooldowns[weapon] === 'number') return p.cooldowns[weapon] | 0;
+            return p[key] | 0;
+        }
+        function mkCooldownPill(label, hasIt, cdTurns, tipActive, tipCd){
+        if (!hasIt) return null;
+            const text = `${label}${cdTurns > 0 ? ' (CD)' : ''}`;
+            const tip  = cdTurns > 0
+                ? tipCd.replace('{n}', cdTurns).replace('{s}', cdTurns === 1 ? '' : 's')
+                : tipActive;
+            return mkPill(text, false, cdTurns > 0, null, tip);
+    }
+
     function buildSidebar(){
       if(!gs){ playersBox.innerHTML=''; myInvBox.innerHTML='<span class="muted">Join a room to see your items.</span>'; return; }
       const players = gs.players||[];
@@ -347,11 +367,8 @@
         if(p.has_deagle)  myInvBox.appendChild(mkPill('Deagle', false, false, null, DESCR.Deagle));
         if (p.has_shotgun) {
             const cd = p.shotgun_cooldown || 0;
-            const title = cd > 0
-                ? `Shotgun is on cooldown for ${cd} more turn${cd > 1 ? 's' : ''}.`
-                : "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.";
             myInvBox.appendChild(
-                mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, cd > 0, null, title)
+                mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, cd > 0, null, "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.")
             );
         }
         if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
@@ -442,16 +459,34 @@
           for(const [c,r] of moveTiles({...a, name:cur})){
             ctx.fillRect(c*CELL+4, HUD+r*CELL+4, CELL-8, CELL-8);
           }
-          // red action tiles (respect Piercing toggle)
-          ctx.fillStyle = 'rgba(255,99,71,0.55)';
-          const reds = [];
-          const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
-          if (a.has_deagle)  reds.push(...(pierce ? deagleTilesIgnoreWalls(a)  : deagleTiles(a)));
-          if (a.has_shotgun) reds.push(...(pierce ? shotgunTilesIgnoreWalls(a) : shotgunTiles(a)));
-          if (a.consumable_selected==='Grenade' && a.grenade_count>0) reds.push(...grenadeTiles(a));
-          for (const [c,r] of reds) {
-            ctx.fillRect(c*CELL+6, HUD+r*CELL+6, CELL-12, CELL-12);
-          }
+        // red action tiles (respect Piercing toggle + per-weapon cooldown)
+        const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
+        const actionTiles = [];
+
+        // Deagle (no cooldown currently)
+        if (a.has_deagle) {
+            const tiles = pierce ? deagleTilesIgnoreWalls(a) : deagleTiles(a);
+            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'deagle', disabled: false });
+        }
+
+        // Shotgun (cooldown-aware)
+        if (a.has_shotgun) {
+            const tiles = pierce ? shotgunTilesIgnoreWalls(a) : shotgunTiles(a);
+            const disabled = isOnCooldown(a, 'shotgun');
+            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'shotgun', disabled });
+        }
+
+        // Grenade targeting area (not a cooldown weapon)
+        if (a.consumable_selected === 'Grenade' && a.grenade_count > 0) {
+            const tiles = grenadeTiles(a);
+            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'grenade', disabled: false });
+        }
+
+        // Draw (gray if disabled)
+        for (const t of actionTiles) {
+            ctx.fillStyle = t.disabled ? 'rgba(128,128,128,0.4)' : 'rgba(255,99,71,0.55)';
+            ctx.fillRect(t.c * CELL + 6, HUD + t.r * CELL + 6, CELL - 12, CELL - 12);
+            }
         }
       }
 
