@@ -348,7 +348,7 @@
         head.append(left, right);
 
         const hp = document.createElement('div'); hp.className='hp';
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 5; i++) {
           const pip = document.createElement('div');
           pip.className = 'pip' + (i < a.hp ? ' on' : '');
           hp.appendChild(pip);
@@ -439,7 +439,7 @@
       ctx.fillStyle = '#e7edf5'; ctx.font = 'bold 16px system-ui';
       ctx.fillText(HUD_TITLE, 12, 20);
       ctx.fillStyle = '#9ab'; ctx.font = '14px system-ui';
-      ctx.fillText('Controls: Left Click face · Arrows move (Shift=2 with Boots) · Right Click shoot/throw · Q self‑KO · R restart', 12, 34);
+      ctx.fillText('Controls: Left Click - face · WASD - move · Right Click - shoot · Q - quit · R - restart', 12, 34);
 
       // grid
       ctx.strokeStyle = '#223042'; ctx.lineWidth=1;

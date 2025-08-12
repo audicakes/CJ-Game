@@ -5,7 +5,7 @@ import random
 # --- Board / rules config ---
 GRID_COLUMNS = 11
 GRID_ROWS = 8
-MAX_HP = 3
+MAX_HP = 5
 DEAGLE_BASE_RANGE_TILES = 5
 SHOTGUN_BASE_DEPTH = 2
 DIRECTIONS = {"left":(-1,0), "right":(1,0), "up":(0,-1), "down":(0,1)}
@@ -299,7 +299,7 @@ def _pickup_if_item(st, p):
 def _alive_names(st):
     return [n for n,a in st["actors"].items() if a["hp"] > 0]
 
-def _apply_damage(st, victim_name, amount=1):
+def _apply_damage(st, victim_name, amount=1): #kev
     p = st["actors"].get(victim_name)
     if not p:
         return
@@ -486,7 +486,6 @@ def apply_move(game, move):
             st, you, "line",
             DEAGLE_BASE_RANGE_TILES + (1 if (you.get("has_scope") and you.get("consumable_selected") == "Scope") else 0)
         )
-
         victims = []
         for c, r in tiles:
             for name, a in st["actors"].items():
@@ -495,12 +494,9 @@ def apply_move(game, move):
                     victims.append(name)
             if victims and not pierce:  # normal shot stops at first victim
                 break
-
         for v in victims:
             _apply_damage(st, v, 2)
-
         _maybe_clover_bonus(st, cur, victims)
-
         if pierce:
             you["piercing_count"] -= 1
             if you["piercing_count"] <= 0:
@@ -509,7 +505,6 @@ def apply_move(game, move):
             else:
                 # keep selected if charges remain
                 you["consumable_selected"] = "Piercing"
-
         _advance_turn(g)
         return g
 
@@ -517,27 +512,21 @@ def apply_move(game, move):
         # Prevent shooting if on cooldown
         if you.get("shotgun_cooldown", 0) > 0:
             return g
-
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
         fan = set(weapon_tiles_ignore_walls(
             st, you, "fan",
             SHOTGUN_BASE_DEPTH + (1 if (you.get("has_scope") and you.get("consumable_selected") == "Scope") else 0),
             width=3
         ))
-
-
         victims = []
         for name, a in st["actors"].items():
             if name == cur or a["hp"] <= 0:
                 continue
             if (a["col"], a["row"]) in fan:
                 victims.append(name)
-
         for v in victims:
             _apply_damage(st, v, 2)
-
         _maybe_clover_bonus(st, cur, victims)
-
         if pierce:
             you["piercing_count"] -= 1
             if you["piercing_count"] <= 0:
@@ -546,16 +535,13 @@ def apply_move(game, move):
                     you["consumable_selected"] = None
             else:
                 you["consumable_selected"] = "Piercing"
-
         # Apply kickback (move backwards 1 tile if possible)
         dc, dr = DIRECTIONS[you["facing"]]
         back_c, back_r = you["col"] - dc, you["row"] - dr
         if _in_bounds(back_c, back_r) and not _occupied(st, back_c, back_r) and not (_ob_at(st, back_c, back_r) and _ob_at(st, back_c, back_r)["type"] == "wall"):
             you["col"], you["row"] = back_c, back_r
-
         # Set shotgun cooldown (1 turn)
         you["shotgun_cooldown"] = 2
-
         _advance_turn(g)
         return g
 
@@ -569,7 +555,7 @@ def apply_move(game, move):
                 if name == cur or a["hp"] <= 0:
                     continue
                 if (a["col"], a["row"]) in area:
-                    _apply_damage(st, name, 1)
+                    _apply_damage(st, name, 2)
             you["grenade_count"] -= 1
             if you["grenade_count"] <= 0:
                 you["consumable_selected"] = None
