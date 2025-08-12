@@ -603,10 +603,10 @@
                 for (const [c, r] of tiles) actionTiles.push({ c, r, disabled });
             }
 
-            // Akimbo Uzis
+            // Akimbo Uzis (exclude center lane)
             if (a.has_uzis) {
-                const tiles = pierce ? uziTilesIgnoreWalls(a) : uziTiles(a);
-                for (const [c, r] of tiles) actionTiles.push({ c, r, disabled:false });
+                const tiles = pierce ? uzisTilesIgnoreWalls(a) : uzisTiles(a);
+                for (const [c, r] of tiles) actionTiles.push({ c, r, weapon:'uzis', disabled:false });
             }
 
             // Quickshot (range 1 + scope)
