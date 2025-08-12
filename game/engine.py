@@ -725,7 +725,7 @@ def apply_move(game, move):
                 if name == cur or a["hp"] <= 0:
                     continue
                 if (a["col"], a["row"]) in area:
-                    _apply_damage(st, name, 2)
+                    _apply_damage(st, name, 3)
             you["grenade_count"] -= 1
             if you["grenade_count"] <= 0:
                 you["consumable_selected"] = None
