@@ -599,9 +599,10 @@
             }
           }
         // red action tiles (respect Piercing toggle + per-weapon cooldown)
-        const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
-        const quickshotLocked = !!(a.has_quickshot && a.qs_move_used);
-        const actionTiles = [];
+        if (a) {
+            const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
+            const quickshotLocked = !!(a.has_quickshot && a.qs_move_used);
+            const actionTiles = [];
 
         //kev
         // Deagle
@@ -652,6 +653,7 @@
             ctx.fillStyle = t.disabled ? 'rgba(128,128,128,0.4)' : 'rgba(255,99,71,0.55)';
             ctx.fillRect(t.c * CELL + 6, HUD + t.r * CELL + 6, CELL - 12, CELL - 12);
         }
+    }
         }
       }
 
@@ -706,6 +708,7 @@
         const sub='Press R to restart', tw2=ctx.measureText(sub).width;
         ctx.fillText(sub, (w - tw2)/2, HUD + h/2 + 18);
       }
+    
   </script>
 </body>
 </html>
