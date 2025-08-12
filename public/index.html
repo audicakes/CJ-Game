@@ -215,6 +215,62 @@
 
     function scopeOn(p){ return !!(p.has_scope && p.consumable_selected === 'Scope'); }
 
+    function weaponTilesGeneric(p, pattern, rangeOrDepth, width = 1, ignoreWalls = false, excludeCenter = false){
+    const [dc, dr] = DIRS[p.facing];
+    const out = [];
+
+    if (pattern === 'line') {
+        let c = p.col + dc, r = p.row + dr;
+        for (let i = 0; i < rangeOrDepth; i++) {
+        if (!inBounds(c, r)) break;
+        out.push([c, r]);
+        if (!ignoreWalls) {
+            const o = obAt(c, r); if (o && o.type === 'wall') break;
+        }
+        c += dc; r += dr;
+        }
+        return out;
+    }
+
+    // fan
+    const half = (width - 1) >> 1;
+    const horiz = (p.facing === 'left' || p.facing === 'right');
+    const pc = horiz ? 0 : 1, pr = horiz ? 1 : 0;
+
+    // Track per-lane blocking if we respect walls
+    const blocked = ignoreWalls ? null : new Map();
+    if (!ignoreWalls) {
+        for (let s = -half; s <= half; s++) {
+        if (excludeCenter && s === 0) continue;
+        blocked.set(s, false);
+        }
+    }
+
+    for (let d = 1; d <= rangeOrDepth; d++) {
+        for (let side = -half; side <= half; side++) {
+        if (excludeCenter && side === 0) continue;
+        if (!ignoreWalls && blocked.get(side)) continue;
+
+        const c = p.col + dc * d + pc * side;
+        const r = p.row + dr * d + pr * side;
+        if (!inBounds(c, r)) continue;
+
+        if (!ignoreWalls) {
+            // check wall along this mini-ray
+            let w = false;
+            for (let s = 1; s <= d; s++) {
+            const cc = p.col + dc * s + pc * side;
+            const rr = p.row + dr * s + pr * side;
+            const o = obAt(cc, rr); if (o && o.type === 'wall') { w = true; break; }
+            }
+            if (w) { blocked.set(side, true); continue; }
+        }
+        out.push([c, r]);
+        }
+    }
+    return out;
+    }
+
     function deagleTiles(p){
       if(!p.has_deagle) return [];
       const rng = 5 + (scopeOn(p)?1:0);
@@ -533,26 +589,29 @@
         const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
         const actionTiles = [];
 
-        // Deagle (no cooldown currently)
+        // Deagle
         if (a.has_deagle) {
-            const tiles = pierce ? deagleTilesIgnoreWalls(a) : deagleTiles(a);
+            const rng = 4 + (scopeOn(a) ? 1 : 0);
+            const tiles = weaponTilesGeneric(a, 'line', rng, 1, pierce, false);
             for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'deagle', disabled: false });
         }
 
         // Shotgun (cooldown-aware)
         if (a.has_shotgun) {
-            const tiles = pierce ? shotgunTilesIgnoreWalls(a) : shotgunTiles(a);
+            const depth = 2 + (scopeOn(a) ? 1 : 0);
+            const tiles = weaponTilesGeneric(a, 'fan', depth, 3, pierce, false);
             const disabled = isOnCooldown(a, 'shotgun');
             for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'shotgun', disabled });
         }
 
-        // Akimbo Uzis (no cooldown)
+        // Akimbo Uzis (exclude center lane)
         if (a.has_uzis) {
-          const tiles = pierce ? uzisTilesIgnoreWalls(a) : uzisTiles(a);
-          for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'uzis', disabled: false });
+            const depth = 3 + (scopeOn(a) ? 1 : 0);
+            const tiles = weaponTilesGeneric(a, 'fan', depth, 3, pierce, true);
+            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'uzis', disabled: false });
         }
 
-        // Grenade targeting area (not a cooldown weapon)
+        // Grenade area (unchanged)
         if (a.consumable_selected === 'Grenade' && a.grenade_count > 0) {
             const tiles = grenadeTiles(a);
             for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'grenade', disabled: false });
@@ -562,7 +621,7 @@
         for (const t of actionTiles) {
             ctx.fillStyle = t.disabled ? 'rgba(128,128,128,0.4)' : 'rgba(255,99,71,0.55)';
             ctx.fillRect(t.c * CELL + 6, HUD + t.r * CELL + 6, CELL - 12, CELL - 12);
-            }
+        }
         }
       }
 

@@ -284,13 +284,13 @@ def _uzis_tiles_ignore_walls(st, p):
                 tiles.append((c, r))
     return tiles
 
-def weapon_tiles_ignore_walls(st, p, pattern, range_or_depth, width=1):
+def weapon_tiles_ignore_walls(st, p, pattern, range_or_depth, width=1, exclude_center=False):
     """
     Generalized tile generator for weapons that ignore walls.
-
     pattern: 'line' or 'fan'
     range_or_depth: int, max tiles forward
     width: for 'fan', how many tiles wide at each depth (odd number, e.g., 3)
+    exclude_center: if True (fan only), omits the center lane (side == 0)
     """
     tiles = []
     dc, dr = DIRECTIONS[p["facing"]]
@@ -308,6 +308,8 @@ def weapon_tiles_ignore_walls(st, p, pattern, range_or_depth, width=1):
         pc, pr = (0, 1) if horizontal else (1, 0)
         for d in range(1, range_or_depth + 1):
             for side in range(-half_span, half_span + 1):
+                if exclude_center and side == 0:
+                    continue
                 tc = p["col"] + dc * d + pc * side
                 tr = p["row"] + dr * d + pr * side
                 if _in_bounds(tc, tr):
@@ -638,7 +640,16 @@ def apply_move(game, move):
 
     if t == "uzi" and you.get("has_uzis"):
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
-        tiles = _uzis_tiles_ignore_walls(st, you) if pierce else _uzis_tiles(st, you)
+        tiles = (
+            weapon_tiles_ignore_walls(
+                st, you, "fan",
+                UZI_BASE_DEPTH + (1 if (you.get("has_scope") and you.get("consumable_selected") == "Scope") else 0),
+                width=3,
+                exclude_center=True
+            )
+            if pierce else _uzis_tiles(st, you)
+        )
+        
         victims = []
         for name, a in st["actors"].items():
             if name == cur or a["hp"] <= 0:
