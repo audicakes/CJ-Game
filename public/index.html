@@ -220,7 +220,7 @@
       return tiles;
     }
 
-    function scopeOn(p){ return !!(p.has_scope && p.consumable_selected === 'Scope'); }
+    function scopeOn(p){ return !!(p.has_scope && p.scope_toggled); }
 
     function weaponTilesGeneric(p, pattern, rangeOrDepth, width = 1, ignoreWalls = false, excludeCenter = false){
     const [dc, dr] = DIRS[p.facing];
@@ -487,7 +487,7 @@
         if (p.has_quickshot) myInvBox.appendChild(mkPill('Quickshot Pistol', false, false, null, DESCR['Quickshot Pistol']));
         if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
         if (p.has_scope) {
-            const selected = p.consumable_selected === 'Scope';
+            const selected = !!p.scope_toggled;
             myInvBox.appendChild(
                 mkPill('Scope', true, selected, ()=>{
                 socket.emit('move', { room: me.room, move:{ type:'toggle_scope', who: me.name } });
@@ -504,7 +504,7 @@
           );
         }
         if (p.has_piercing && p.piercing_count > 0) {
-          const selected = p.consumable_selected === 'Piercing';
+          const selected = !!p.piercing_toggled;
           myInvBox.appendChild(
             mkPill(`Piercing Rounds (${p.piercing_count})`, true, selected, ()=>{
               socket.emit('move', { room: me.room, move:{ type:'toggle_piercing', who: me.name } });
@@ -587,8 +587,8 @@
 
         /* RED action tiles (Piercing/Scope/cooldowns respected) */
         if (actor) {
-        const pierce = (actor.consumable_selected === 'Piercing' && actor.piercing_count > 0);
-        const actionTiles = [];
+            const pierce = !!(actor.piercing_toggled && a.piercing_count > 0);
+            const actionTiles = [];
 
         // Deagle
         if (actor.has_deagle) {

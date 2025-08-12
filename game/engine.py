@@ -177,7 +177,8 @@ def join(game, name):
         # inventory/flags
         "has_deagle": False, "has_shotgun": False, "has_uzis": False, "has_quickshot": False,
         "has_agility_boots": False, "has_scope": False, "has_shield": False,
-        "has_grenade": False, "grenade_count": 0, "consumable_selected": None,
+        "has_grenade": False, "grenade_count": 0, "consumable_selected": None, #consumable is grenade only ig 
+        "scope_toggled": False, "piercing_toggled": False,
         "last_water_pos": None, "has_piercing": False, "piercing_count": 0,
         "has_lucky_clover": False, "shotgun_cooldown": 0, "qs_move_used": False
 
@@ -189,7 +190,7 @@ def join(game, name):
 # ---------- highlight helpers ----------
 def _deagle_tiles(st, p):
     if not p["has_deagle"]: return []
-    rng = DEAGLE_BASE_RANGE_TILES + (1 if (p.get("has_scope") and p.get("consumable_selected") == "Scope") else 0)
+    rng = DEAGLE_BASE_RANGE_TILES + (1 if (p.get("has_scope") and p.get("scope_toggled")) else 0)
     dc, dr = DIRECTIONS[p["facing"]]
     out = []
     c, r, steps = p["col"]+dc, p["row"]+dr, 0
@@ -204,7 +205,7 @@ def _deagle_tiles(st, p):
 
 def _shotgun_tiles(st, p):
     if not p["has_shotgun"]: return []
-    depth_max = SHOTGUN_BASE_DEPTH + (1 if (p.get("has_scope") and p.get("consumable_selected") == "Scope") else 0)
+    depth_max = SHOTGUN_BASE_DEPTH + (1 if (p.get("has_scope") and p.get("scope_toggled")) else 0)
     dc, dr = DIRECTIONS[p["facing"]]
     horizontal = p["facing"] in ("left", "right")
     pc, pr = (0, 1) if horizontal else (1, 0)
@@ -237,7 +238,7 @@ def _uzis_tiles(st, p):
     """
     if not p.get("has_uzis"):
         return []
-    depth_max = UZI_BASE_DEPTH + (1 if (p.get("has_scope") and p.get("consumable_selected") == "Scope") else 0)
+    depth_max = UZI_BASE_DEPTH + (1 if (p.get("has_scope") and p.get("scope_toggled")) else 0)
     dc, dr = DIRECTIONS[p["facing"]]
     horizontal = p["facing"] in ("left", "right")
     pc, pr = (0, 1) if horizontal else (1, 0)
@@ -271,7 +272,7 @@ def _uzis_tiles_ignore_walls(st, p):
     """Akimbo Uzis area when walls are ignored: 3x(depth) slab excluding center lane."""
     if not p.get("has_uzis"):
         return []
-    depth_max = UZI_BASE_DEPTH + (1 if (p.get("has_scope") and p.get("consumable_selected") == "Scope") else 0)
+    depth_max = UZI_BASE_DEPTH + (1 if (p.get("has_scope") and p.get("scope_toggled")) else 0)
     dc, dr = DIRECTIONS[p["facing"]]
     horizontal = p["facing"] in ("left", "right")
     pc, pr = (0, 1) if horizontal else (1, 0)
@@ -419,7 +420,9 @@ def _end_turn_bookkeeping(st, name):
         p["last_water_pos"] = pos
     else:
         p["last_water_pos"] = None
-    p["consumable_selected"] = None  # clear consumable toggle each turn
+        p["consumable_selected"] = None          # only Grenade uses this
+        p["scope_toggled"] = False               # Scope is per-turn
+        p["piercing_toggled"] = False            # Piercing “armed” flag resets each turn
     # decrement shotgun cooldown if active
     if p.get("shotgun_cooldown", 0) > 0:
         p["shotgun_cooldown"] -= 1
@@ -449,7 +452,8 @@ def _restart(g):
             "has_deagle": False, "has_shotgun": False, "has_uzis": False, "has_quickshot": False, "qs_move_used": False,
             "has_agility_boots": False, "has_scope": False, "has_shield": False,
             "has_grenade": False, "grenade_count": 0, "has_piercing": False, "piercing_count": 0,
-            "consumable_selected": None, "last_water_pos": None, "facing": "right",
+            "consumable_selected": None, "scope_toggled": False, "piercing_toggled": False,
+            "last_water_pos": None, "facing": "right",
             "has_piercing": False, "piercing_count": 0, "has_lucky_clover": False, "shotgun_cooldown": 0,
         })
     # Greedy farthest placement for all current players
@@ -523,7 +527,7 @@ def apply_move(game, move):
         return g
     
     # Quickshot gating: after using the free move, only face/aim, quickshot, or end_turn are allowed
-    if you.get("has_quickshot") and you.get("qs_move_used", False) and t not in ("face", "quickshot", "end_turn"):
+    if you.get("has_quickshot") and you.get("qs_move_used", False) and t not in ("face", "quickshot", "end_turn", "toggle_scope", "toggle_piercing"):
         return g
 
     if t == "self_ko":
@@ -581,17 +585,17 @@ def apply_move(game, move):
             you["consumable_selected"] = None if you["consumable_selected"] == "Grenade" else "Grenade"
         return g
     if t == "toggle_piercing":
-        if you["has_piercing"] and you["piercing_count"] > 0:
-            you["consumable_selected"] = None if you["consumable_selected"] == "Piercing" else "Piercing"
+        if you.get("has_piercing") and you.get("piercing_count", 0) > 0:
+            you["piercing_toggled"] = not you.get("piercing_toggled", False)
         return g
     if t == "toggle_scope":
-        if you["has_scope"]:
-            you["consumable_selected"] = None if you["consumable_selected"] == "Scope" else "Scope"
+        if you.get("has_scope"):
+            you["scope_toggled"] = not you.get("scope_toggled", False)
         return g
 
     #kev
     if t == "shoot" and you["has_deagle"]:
-        pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
+        pierce = (you.get("piercing_toggled") and you.get("piercing_count", 0) > 0)
         tiles = weapon_tiles_ignore_walls(
             st, you, "line",
             DEAGLE_BASE_RANGE_TILES + (1 if (you.get("has_scope") and you.get("consumable_selected") == "Scope") else 0)
@@ -611,10 +615,9 @@ def apply_move(game, move):
             you["piercing_count"] -= 1
             if you["piercing_count"] <= 0:
                 you["has_piercing"] = False
-                if you["consumable_selected"] == "Piercing": you["consumable_selected"] = None
+                you["piercing_toggled"] = False
             else:
-                # keep selected if charges remain
-                you["consumable_selected"] = "Piercing"
+                you["piercing_toggled"] = True   # stay armed if charges remain
         _advance_turn(g)
         return g
 
@@ -622,7 +625,7 @@ def apply_move(game, move):
         # Prevent shooting if on cooldown
         if you.get("shotgun_cooldown", 0) > 0:
             return g
-        pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
+        pierce = (you.get("piercing_toggled") and you.get("piercing_count", 0) > 0)
         fan = set(weapon_tiles_ignore_walls(
             st, you, "fan",
             SHOTGUN_BASE_DEPTH + (1 if (you.get("has_scope") and you.get("consumable_selected") == "Scope") else 0),
@@ -641,10 +644,9 @@ def apply_move(game, move):
             you["piercing_count"] -= 1
             if you["piercing_count"] <= 0:
                 you["has_piercing"] = False
-                if you["consumable_selected"] == "Piercing":
-                    you["consumable_selected"] = None
+                you["piercing_toggled"] = False
             else:
-                you["consumable_selected"] = "Piercing"
+                you["piercing_toggled"] = True   # stay armed if charges remain
         # Apply kickback (move backwards 1 tile if possible)
         dc, dr = DIRECTIONS[you["facing"]]
         back_c, back_r = you["col"] - dc, you["row"] - dr
@@ -656,7 +658,7 @@ def apply_move(game, move):
         return g
 
     if t == "uzi" and you.get("has_uzis"):
-        pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
+        pierce = (you.get("piercing_toggled") and you.get("piercing_count", 0) > 0)
         tiles = (
             weapon_tiles_ignore_walls(
                 st, you, "fan",
@@ -679,14 +681,14 @@ def apply_move(game, move):
             you["piercing_count"] -= 1
             if you["piercing_count"] <= 0:
                 you["has_piercing"] = False
-                if you["consumable_selected"] == "Piercing":
-                    you["consumable_selected"] = None
+                you["piercing_toggled"] = False
             else:
-                you["consumable_selected"] = "Piercing"
+                you["piercing_toggled"] = True   # stay armed if charges remain
         _advance_turn(g)
         return g
     
     if t == "quickshot" and you.get("has_quickshot"):
+        pierce = (you.get("piercing_toggled") and you.get("piercing_count", 0) > 0)
         # Range: 1 tile forward (+1 if Scope is toggled this turn). Walls block. Stops at first victim.
         dc, dr = DIRECTIONS[you["facing"]]
         rng = 1 + (1 if (you.get("has_scope") and you.get("consumable_selected") == "Scope") else 0)
