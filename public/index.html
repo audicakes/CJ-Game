@@ -396,7 +396,7 @@
       Deagle: 'Right‑click a red tile to shoot. Deals 2 dmg',
       Shotgun: 'Right‑click a red tile to shoot. Deals 2 dmg. 1 tile recoil. 1 turn reload',
       'Akimbo Uzis': 'Right-click a red tile to shoot. Deals 1 dmg.',
-      'Quickshot Pistol': 'Right-click a red tile to shoot. Deals 1 dmg. Must move and shoot on same turn.',
+      'Quickshot Pistol': 'Right-click a red tile to shoot. Deals 1 dmg. Can move and shoot on same turn.',
       'Agility Boots': 'Hold Shift while moving to jump 2 tiles.',
       Scope: 'Toggle to add +1 range/depth to weapons.',
       Shield: 'Blocks the next damage you would take. One us.',
@@ -682,17 +682,37 @@
         ctx.strokeRect(hoverCell.col*CELL+1, HUD+hoverCell.row*CELL+1, CELL-2, CELL-2);
       }
 
-      // Game Over overlay
-      if (gs.state.game_over) {
+      // Game Over overlay (show winner)
+    if (gs.state.game_over) {
         ctx.fillStyle = 'rgba(0,0,0,0.55)';
         ctx.fillRect(0, HUD, w, h);
-        ctx.fillStyle = '#e7edf5'; ctx.font = 'bold 28px system-ui';
-        const msg='Game Over', tw=ctx.measureText(msg).width;
-        ctx.fillText(msg, (w - tw)/2, HUD + h/2 - 8);
+
+        // Determine winner (actor with hp > 0)
+        const alive = Object.entries(gs.state.actors || {})
+            .filter(([_, a]) => a && a.hp > 0)
+            .map(([name]) => name);
+        const winner = (alive.length === 1) ? alive[0] : (alive.length === 0 ? 'No one' : '—');
+
+        // Title
+        ctx.fillStyle = '#e7edf5';
+        ctx.font = 'bold 28px system-ui';
+        const title = 'Game Over';
+        const tw = ctx.measureText(title).width;
+        const centerY = HUD + h / 2;
+        ctx.fillText(title, (w - tw) / 2, centerY - 22);
+
+        // Winner line
+        ctx.font = '18px system-ui';
+        const winLine = `Winner: ${winner}`;
+        const twWin = ctx.measureText(winLine).width;
+        ctx.fillText(winLine, (w - twWin) / 2, centerY + 4);
+
+        // Restart hint
         ctx.font = '16px system-ui';
-        const sub='Press R to restart', tw2=ctx.measureText(sub).width;
-        ctx.fillText(sub, (w - tw2)/2, HUD + h/2 + 18);
-      }
+        const sub = 'Press R to restart';
+        const tw2 = ctx.measureText(sub).width;
+        ctx.fillText(sub, (w - tw2) / 2, centerY + 30);
+    }
     }
     
   </script>
