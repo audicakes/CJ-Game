@@ -589,10 +589,14 @@
         const cur = players[gs.turn % players.length];
         const a = gs.state.actors[cur];
         if(a && a.hp>0){
-          // green move tiles
-          ctx.fillStyle = 'rgba(144,238,144,0.55)';
-          for(const [c,r] of moveTiles({...a, name:cur})){
-            ctx.fillRect(c*CELL+4, HUD+r*CELL+4, CELL-8, CELL-8);
+          // green move tiles (hidden after Quickshot free-move)
+            const quickshotLocked = !!(a.has_quickshot && a.qs_move_used);
+            if (!quickshotLocked) {
+            ctx.fillStyle = 'rgba(144,238,144,0.55)';
+            for (const [c,r] of moveTiles({...a, name:cur})) {
+                ctx.fillRect(c*CELL+4, HUD+r*CELL+4, CELL-8, CELL-8);
+            }
+            }
           }
         // red action tiles (respect Piercing toggle + per-weapon cooldown)
         const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
@@ -625,9 +629,17 @@
         // Quickshot (range 1 forward)
         if (a.has_quickshot) {
             const [dc, dr] = DIRS[a.facing];
-            const c = a.col + dc, r = a.row + dr;
-            if (inBounds(c, r)) actionTiles.push({ c, r, weapon: 'quickshot', disabled: false });
-        }
+            const rng = 1 + (scopeOn(a) ? 1 : 0);
+            let c = a.col, r = a.row;
+            for (let i = 0; i < rng; i++) {
+                c += dc; r += dr;
+                if (!inBounds(c, r)) break;
+                const o = obAt(c, r);
+                if (o && o.type === 'wall') break;
+                actionTiles.push({ c, r, weapon: 'quickshot', disabled: false });
+                // (preview still shows both tiles if clear; actual shot stops at first victim server-side)
+            }
+            }
 
         // Grenade area (unchanged)
         if (a.consumable_selected === 'Grenade' && a.grenade_count > 0) {
@@ -694,7 +706,6 @@
         const sub='Press R to restart', tw2=ctx.measureText(sub).width;
         ctx.fillText(sub, (w - tw2)/2, HUD + h/2 + 18);
       }
-    }
   </script>
 </body>
 </html>

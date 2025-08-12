@@ -687,15 +687,27 @@ def apply_move(game, move):
         return g
     
     if t == "quickshot" and you.get("has_quickshot"):
-        # range: exactly 1 tile forward, 1 damage
+        # Range: 1 tile forward (+1 if Scope is toggled this turn). Walls block. Stops at first victim.
         dc, dr = DIRECTIONS[you["facing"]]
-        c, r = you["col"] + dc, you["row"] + dr
+        rng = 1 + (1 if (you.get("has_scope") and you.get("consumable_selected") == "Scope") else 0)
         victims = []
-        for name, a in st["actors"].items():
-            if name == cur or a["hp"] <= 0:
-                continue
-            if a["col"] == c and a["row"] == r:
-                victims.append(name)
+        c, r = you["col"], you["row"]
+        for _ in range(rng):
+            c += dc; r += dr
+            if not _in_bounds(c, r):
+                break
+            ob = _ob_at(st, c, r)
+            if ob and ob["type"] == "wall":
+                break
+            # first victim in range
+            for name, a in st["actors"].items():
+                if name == cur or a["hp"] <= 0: 
+                    continue
+                if a["col"] == c and a["row"] == r:
+                    victims.append(name)
+                    break
+            if victims:
+                break
         for v in victims:
             _apply_damage(st, v, 1)
         _maybe_clover_bonus(st, cur, victims)
