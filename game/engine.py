@@ -6,7 +6,7 @@ import random
 GRID_COLUMNS = 11
 GRID_ROWS = 8
 MAX_HP = 3
-DEAGLE_BASE_RANGE_TILES = 4
+DEAGLE_BASE_RANGE_TILES = 5
 SHOTGUN_BASE_DEPTH = 2
 DIRECTIONS = {"left":(-1,0), "right":(1,0), "up":(0,-1), "down":(0,1)}
 
@@ -112,7 +112,7 @@ def _gen_level(st, num_players):
 
     # items
     st["items"].clear()
-    base = num_players * 4
+    base = num_players * 5
     n_items = random.randint(max(1, base), base)
     n_weapon = int(n_items // 2.5)
     n_misc = n_items - n_weapon
@@ -161,7 +161,7 @@ def join(game, name):
 # ---------- highlight helpers ----------
 def _deagle_tiles(st, p):
     if not p["has_deagle"]: return []
-    rng = DEAGLE_BASE_RANGE_TILES + (1 if p["has_scope"] else 0)
+    rng = DEAGLE_BASE_RANGE_TILES + (1 if (p.get("has_scope") and p.get("consumable_selected") == "Scope") else 0)
     dc, dr = DIRECTIONS[p["facing"]]
     out = []
     c, r, steps = p["col"]+dc, p["row"]+dr, 0
@@ -176,7 +176,7 @@ def _deagle_tiles(st, p):
 
 def _shotgun_tiles(st, p):
     if not p["has_shotgun"]: return []
-    depth_max = SHOTGUN_BASE_DEPTH + (1 if p["has_scope"] else 0)
+    depth_max = SHOTGUN_BASE_DEPTH + (1 if (p.get("has_scope") and p.get("consumable_selected") == "Scope") else 0)
     dc, dr = DIRECTIONS[p["facing"]]
     horizontal = p["facing"] in ("left", "right")
     pc, pr = (0, 1) if horizontal else (1, 0)
@@ -470,16 +470,22 @@ def apply_move(game, move):
         if you["has_grenade"] and you["grenade_count"] > 0:
             you["consumable_selected"] = None if you["consumable_selected"] == "Grenade" else "Grenade"
         return g
-    
     if t == "toggle_piercing":
         if you["has_piercing"] and you["piercing_count"] > 0:
             you["consumable_selected"] = None if you["consumable_selected"] == "Piercing" else "Piercing"
         return g
+    if t == "toggle_scope":
+        if you["has_scope"]:
+            you["consumable_selected"] = None if you["consumable_selected"] == "Scope" else "Scope"
+        return g
+
 
     if t == "shoot" and you["has_deagle"]:
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
-        tiles = weapon_tiles_ignore_walls(st, you, "line", DEAGLE_BASE_RANGE_TILES + (1 if you["has_scope"] else 0))
-
+        tiles = weapon_tiles_ignore_walls(
+            st, you, "line",
+            DEAGLE_BASE_RANGE_TILES + (1 if (you.get("has_scope") and you.get("consumable_selected") == "Scope") else 0)
+        )
 
         victims = []
         for c, r in tiles:
@@ -515,9 +521,10 @@ def apply_move(game, move):
         pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
         fan = set(weapon_tiles_ignore_walls(
             st, you, "fan",
-            SHOTGUN_BASE_DEPTH + (1 if you["has_scope"] else 0),
+            SHOTGUN_BASE_DEPTH + (1 if (you.get("has_scope") and you.get("consumable_selected") == "Scope") else 0),
             width=3
         ))
+
 
         victims = []
         for name, a in st["actors"].items():
