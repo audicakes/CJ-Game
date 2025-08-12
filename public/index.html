@@ -337,20 +337,6 @@
         }
         return out;
         }
-        function uzisTilesIgnoreWalls(p){
-        const depth = 3 + ((p.has_scope && p.consumable_selected === 'Scope') ? 1 : 0);
-        const [dc, dr] = DIRS[p.facing];
-        const horizontal = (p.facing === 'left' || p.facing === 'right');
-        const pc = horizontal ? 0 : 1, pr = horizontal ? 1 : 0;
-        const out = [];
-        for(let d=1; d<=depth; d++){
-            for(const side of [-1,1]){ // exclude center
-            const c = p.col + dc*d + pc*side, r = p.row + dr*d + pr*side;
-            if(inBounds(c,r)) out.push([c,r]);
-            }
-        }
-        return out;
-    }
 
     function deagleTilesIgnoreWalls(p){
       const rng = 5 + (scopeOn(p)?1:0);
@@ -584,68 +570,65 @@
       }
 
       // highlights for current player
-      const players = gs.players||[];
-      if(players.length){
-        const cur = players[gs.turn % players.length];
-        const a = gs.state.actors[cur];
-        if(a && a.hp>0){
-          // green move tiles (hidden after Quickshot free-move)
-            const quickshotLocked = !!(a.has_quickshot && a.qs_move_used);
-            if (!quickshotLocked) {
-            ctx.fillStyle = 'rgba(144,238,144,0.55)';
-            for (const [c,r] of moveTiles({...a, name:cur})) {
-                ctx.fillRect(c*CELL+4, HUD+r*CELL+4, CELL-8, CELL-8);
-            }
-            }
-          }
-        // red action tiles (respect Piercing toggle + per-weapon cooldown)
-        if (a) {
-            const pierce = (a.consumable_selected === 'Piercing' && a.piercing_count > 0);
-            const quickshotLocked = !!(a.has_quickshot && a.qs_move_used);
-            const actionTiles = [];
+        const turnOrder = gs.players || [];
+        const turnName  = turnOrder.length ? turnOrder[gs.turn % turnOrder.length] : null;
+        const actor     = turnName ? gs.state.actors[turnName] : null;
 
-        //kev
+        /* GREEN move tiles (hidden after Quickshot free-move) */
+        if (actor && actor.hp > 0) {
+        const quickshotLocked = !!(actor.has_quickshot && actor.qs_move_used);
+        if (!quickshotLocked) {
+            ctx.fillStyle = 'rgba(144,238,144,0.55)';
+            for (const [c, r] of moveTiles({ ...actor, name: turnName })) {
+            ctx.fillRect(c * CELL + 4, HUD + r * CELL + 4, CELL - 8, CELL - 8);
+            }
+        }
+        }
+
+        /* RED action tiles (Piercing/Scope/cooldowns respected) */
+        if (actor) {
+        const pierce = (actor.consumable_selected === 'Piercing' && actor.piercing_count > 0);
+        const actionTiles = [];
+
         // Deagle
-        if (a.has_deagle) {
-            const rng = 4 + (scopeOn(a) ? 1 : 0);
-            const tiles = weaponTilesGeneric(a, 'line', rng, 1, pierce, false);
-            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'deagle', disabled: false });
+        if (actor.has_deagle) {
+            const rng = 4 + (scopeOn(actor) ? 1 : 0);
+            const tiles = weaponTilesGeneric(actor, 'line', rng, 1, pierce, false);
+            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon:'deagle', disabled:false });
         }
 
         // Shotgun (cooldown-aware)
-        if (a.has_shotgun) {
-            const depth = 2 + (scopeOn(a) ? 1 : 0);
-            const tiles = weaponTilesGeneric(a, 'fan', depth, 3, pierce, false);
-            const disabled = isOnCooldown(a, 'shotgun');
-            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'shotgun', disabled });
+        if (actor.has_shotgun) {
+            const depth = 2 + (scopeOn(actor) ? 1 : 0);
+            const tiles = weaponTilesGeneric(actor, 'fan', depth, 3, pierce, false);
+            const disabled = isOnCooldown(actor, 'shotgun');
+            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon:'shotgun', disabled });
         }
 
         // Akimbo Uzis (exclude center lane)
-        if (a.has_uzis) {
-            const depth = 3 + (scopeOn(a) ? 1 : 0);
-            const tiles = weaponTilesGeneric(a, 'fan', depth, 3, pierce, true);
-            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'uzis', disabled: false });
+        if (actor.has_uzis) {
+            const depth = 3 + (scopeOn(actor) ? 1 : 0);
+            const tiles = weaponTilesGeneric(actor, 'fan', depth, 3, pierce, true);
+            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon:'uzis', disabled:false });
         }
 
-        // Quickshot (range 1 forward)
-        if (a.has_quickshot) {
-            const [dc, dr] = DIRS[a.facing];
-            const rng = 1 + (scopeOn(a) ? 1 : 0);
-            let c = a.col, r = a.row;
+        // Quickshot (range 1, +1 if Scope; walls block)
+        if (actor.has_quickshot) {
+            const [dc, dr] = DIRS[actor.facing];
+            const rng = 1 + (scopeOn(actor) ? 1 : 0);
+            let c = actor.col, r = actor.row;
             for (let i = 0; i < rng; i++) {
-                c += dc; r += dr;
-                if (!inBounds(c, r)) break;
-                const o = obAt(c, r);
-                if (o && o.type === 'wall') break;
-                actionTiles.push({ c, r, weapon: 'quickshot', disabled: false });
-                // (preview still shows both tiles if clear; actual shot stops at first victim server-side)
+            c += dc; r += dr;
+            if (!inBounds(c, r)) break;
+            const o = obAt(c, r); if (o && o.type === 'wall') break;
+            actionTiles.push({ c, r, weapon:'quickshot', disabled:false });
             }
-            }
+        }
 
-        // Grenade area (unchanged)
-        if (a.consumable_selected === 'Grenade' && a.grenade_count > 0) {
-            const tiles = grenadeTiles(a);
-            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'grenade', disabled: false });
+        // Grenade target area
+        if (actor.consumable_selected === 'Grenade' && actor.grenade_count > 0) {
+            const tiles = grenadeTiles(actor);
+            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon:'grenade', disabled:false });
         }
 
         // Draw (gray if disabled)
@@ -653,9 +636,7 @@
             ctx.fillStyle = t.disabled ? 'rgba(128,128,128,0.4)' : 'rgba(255,99,71,0.55)';
             ctx.fillRect(t.c * CELL + 6, HUD + t.r * CELL + 6, CELL - 12, CELL - 12);
         }
-    }
         }
-      }
 
       // items
       for (const it of (gs.state.items || [])) {
@@ -708,7 +689,9 @@
         const sub='Press R to restart', tw2=ctx.measureText(sub).width;
         ctx.fillText(sub, (w - tw2)/2, HUD + h/2 + 18);
       }
+    }
     
   </script>
 </body>
 </html>
+    
