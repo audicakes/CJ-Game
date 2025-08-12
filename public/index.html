@@ -221,6 +221,7 @@
     }
 
     function scopeOn(p){ return !!(p.has_scope && p.scope_toggled); }
+    function pierceOn(p){ return !!(p.has_piercing && p.piercing_toggled && p.piercing_count > 0); }
 
     function weaponTilesGeneric(p, pattern, rangeOrDepth, width = 1, ignoreWalls = false, excludeCenter = false){
     const [dc, dr] = DIRS[p.facing];
@@ -487,12 +488,12 @@
         if (p.has_quickshot) myInvBox.appendChild(mkPill('Quickshot Pistol', false, false, null, DESCR['Quickshot Pistol']));
         if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
         if (p.has_scope) {
-            const selected = !!p.scope_toggled;
-            myInvBox.appendChild(
-                mkPill('Scope', true, selected, ()=>{
-                socket.emit('move', { room: me.room, move:{ type:'toggle_scope', who: me.name } });
-                }, DESCR.Scope)
-            );
+        const selected = !!p.scope_toggled;
+        myInvBox.appendChild(
+            mkPill('Scope', true, selected, ()=>{
+            socket.emit('move', { room: me.room, move:{ type:'toggle_scope', who: me.name } });
+            }, DESCR.Scope)
+        );
         }
         if(p.has_shield)  myInvBox.appendChild(mkPill('Shield', false, false, null, DESCR.Shield));
         if(p.has_grenade && p.grenade_count>0){
@@ -504,12 +505,12 @@
           );
         }
         if (p.has_piercing && p.piercing_count > 0) {
-          const selected = !!p.piercing_toggled;
-          myInvBox.appendChild(
+        const selected = !!p.piercing_toggled;
+        myInvBox.appendChild(
             mkPill(`Piercing Rounds (${p.piercing_count})`, true, selected, ()=>{
-              socket.emit('move', { room: me.room, move:{ type:'toggle_piercing', who: me.name } });
+            socket.emit('move', { room: me.room, move:{ type:'toggle_piercing', who: me.name } });
             }, DESCR['Piercing Rounds'])
-          );
+        );
         }
         if (p.has_lucky_clover) {
           myInvBox.appendChild(mkPill('Lucky Clover', false, false, null, DESCR['Lucky Clover']));
@@ -570,73 +571,70 @@
       }
 
       // highlights for current player
-        const turnOrder = gs.players || [];
-        const turnName  = turnOrder.length ? turnOrder[gs.turn % turnOrder.length] : null;
-        const actor     = turnName ? gs.state.actors[turnName] : null;
+    const players = gs.players || [];
+    if (players.length) {
+        const cur = players[gs.turn % players.length];
+        const a = gs.state.actors[cur];
 
-        /* GREEN move tiles (hidden after Quickshot free-move) */
-        if (actor && actor.hp > 0) {
-        const quickshotLocked = !!(actor.has_quickshot && actor.qs_move_used);
-        if (!quickshotLocked) {
-            ctx.fillStyle = 'rgba(144,238,144,0.55)';
-            for (const [c, r] of moveTiles({ ...actor, name: turnName })) {
-            ctx.fillRect(c * CELL + 4, HUD + r * CELL + 4, CELL - 8, CELL - 8);
+        if (a && a.hp > 0) {
+            // green move tiles (hide after Quickshot free-move)
+            const quickshotLocked = !!(a.has_quickshot && a.qs_move_used);
+            if (!quickshotLocked) {
+                ctx.fillStyle = 'rgba(144,238,144,0.55)';
+                for (const [c, r] of moveTiles({ ...a, name: cur })) {
+                    ctx.fillRect(c*CELL+4, HUD+r*CELL+4, CELL-8, CELL-8);
+                }
             }
-        }
-        }
 
-        /* RED action tiles (Piercing/Scope/cooldowns respected) */
-        if (actor) {
-            const pierce = !!(actor.piercing_toggled && a.piercing_count > 0);
+            // red action tiles (respect Piercing toggle + cooldown + scope)
             const actionTiles = [];
+            const pierce = pierceOn(a);
 
-        // Deagle
-        if (actor.has_deagle) {
-            const rng = 4 + (scopeOn(actor) ? 1 : 0);
-            const tiles = weaponTilesGeneric(actor, 'line', rng, 1, pierce, false);
-            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon:'deagle', disabled:false });
-        }
-
-        // Shotgun (cooldown-aware)
-        if (actor.has_shotgun) {
-            const depth = 2 + (scopeOn(actor) ? 1 : 0);
-            const tiles = weaponTilesGeneric(actor, 'fan', depth, 3, pierce, false);
-            const disabled = isOnCooldown(actor, 'shotgun');
-            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon:'shotgun', disabled });
-        }
-
-        // Akimbo Uzis (exclude center lane)
-        if (actor.has_uzis) {
-            const depth = 3 + (scopeOn(actor) ? 1 : 0);
-            const tiles = weaponTilesGeneric(actor, 'fan', depth, 3, pierce, true);
-            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon:'uzis', disabled:false });
-        }
-
-        // Quickshot (range 1, +1 if Scope; walls block)
-        if (actor.has_quickshot) {
-            const [dc, dr] = DIRS[actor.facing];
-            const rng = 1 + (scopeOn(actor) ? 1 : 0);
-            let c = actor.col, r = actor.row;
-            for (let i = 0; i < rng; i++) {
-            c += dc; r += dr;
-            if (!inBounds(c, r)) break;
-            const o = obAt(c, r); if (o && o.type === 'wall') break;
-            actionTiles.push({ c, r, weapon:'quickshot', disabled:false });
+            // Deagle
+            if (a.has_deagle) {
+                const tiles = pierce ? deagleTilesIgnoreWalls(a) : deagleTiles(a);
+                for (const [c, r] of tiles) actionTiles.push({ c, r, disabled:false });
             }
-        }
 
-        // Grenade target area
-        if (actor.consumable_selected === 'Grenade' && actor.grenade_count > 0) {
-            const tiles = grenadeTiles(actor);
-            for (const [c, r] of tiles) actionTiles.push({ c, r, weapon:'grenade', disabled:false });
-        }
+            // Shotgun (gray out if on cooldown)
+            if (a.has_shotgun) {
+                const tiles = pierce ? shotgunTilesIgnoreWalls(a) : shotgunTiles(a);
+                const disabled = isOnCooldown(a, 'shotgun');
+                for (const [c, r] of tiles) actionTiles.push({ c, r, disabled });
+            }
 
-        // Draw (gray if disabled)
-        for (const t of actionTiles) {
-            ctx.fillStyle = t.disabled ? 'rgba(128,128,128,0.4)' : 'rgba(255,99,71,0.55)';
-            ctx.fillRect(t.c * CELL + 6, HUD + t.r * CELL + 6, CELL - 12, CELL - 12);
+            // Akimbo Uzis
+            if (a.has_uzis) {
+                const tiles = pierce ? uziTilesIgnoreWalls(a) : uziTiles(a);
+                for (const [c, r] of tiles) actionTiles.push({ c, r, disabled:false });
+            }
+
+            // Quickshot (range 1 + scope)
+            if (a.has_quickshot) {
+                const [dc, dr] = DIRS[a.facing];
+                const rng = 1 + (scopeOn(a) ? 1 : 0);
+                let c = a.col, r = a.row;
+                for (let i = 0; i < rng; i++) {
+                    c += dc; r += dr;
+                    if (!inBounds(c, r)) break;
+                    const o = obAt(c, r);
+                    if (o && o.type === 'wall') break;
+                    actionTiles.push({ c, r, disabled:false });
+                }
+            }
+
+            // Grenade area (unchanged)
+            if (a.consumable_selected === 'Grenade' && a.grenade_count > 0) {
+                for (const [c, r] of grenadeTiles(a)) actionTiles.push({ c, r, disabled:false });
+                }
+
+                // Draw all action tiles (gray if disabled)
+                for (const t of actionTiles) {
+                    ctx.fillStyle = t.disabled ? 'rgba(128,128,128,0.4)' : 'rgba(255,99,71,0.55)';
+                    ctx.fillRect(t.c*CELL+6, HUD+t.r*CELL+6, CELL-12, CELL-12);
+                }
         }
-        }
+    }
 
       // items
       for (const it of (gs.state.items || [])) {
