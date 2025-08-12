@@ -52,6 +52,33 @@ def _item_at(st, c, r):
             return it
     return None
 
+def _random_empty_tile(st):
+    """Return (c, r) for a random empty, non-obstacle tile (None if full)."""
+    occupied = {(a["col"], a["row"]) for a in st["actors"].values() if a["hp"] > 0}
+    blocked  = {(ob["col"], ob["row"]) for ob in st["obstacles"]}  # walls & water both block items
+    items    = {(it["col"], it["row"]) for it in st["items"]}
+    used = occupied | blocked | items
+    for _ in range(2000):
+        c = random.randrange(0, GRID_COLUMNS)
+        r = random.randrange(0, GRID_ROWS)
+        if (c, r) not in used:
+            return (c, r)
+    # Fallback deterministic sweep
+    for r in range(GRID_ROWS):
+        for c in range(GRID_COLUMNS):
+            if (c, r) not in used:
+                return (c, r)
+    return None
+
+def _spawn_one_item_if_none_left(st, kind):
+    """If there are no items of 'kind' on the board, spawn exactly one."""
+    if any(it["type"] == kind for it in st["items"]):
+        return
+    pos = _random_empty_tile(st)
+    if pos:
+        c, r = pos
+        st["items"].append({"type": kind, "col": c, "row": r})
+
 def _dist(a, b):
     # Chebyshev distance fits grid movement well; you could use Manhattan if you prefer.
     return max(abs(a[0]-b[0]), abs(a[1]-b[1]))
@@ -293,7 +320,12 @@ def _pickup_if_item(st, p):
             elif give == "clover":
                 p["has_lucky_clover"] = True
     if consumed:
+        # Remove the picked-up item from the map
         st["items"] = [x for x in st["items"] if not (x["col"] == it["col"] and x["row"] == it["row"])]
+        # Keep at least one of each item type on the board
+        _spawn_one_item_if_none_left(st, "mystery_weapon")
+        _spawn_one_item_if_none_left(st, "mystery_item")
+
 
 # ---------- damage / turn ----------
 def _alive_names(st):
