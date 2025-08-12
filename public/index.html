@@ -346,7 +346,7 @@
       Scope: 'Toggle to add +1 range/depth to weapons.',
       Shield: 'Blocks the next damage you would take.',
       Grenade: 'Toggle, then right‑click a red tile in the 3×3 slab ahead. Ignores walls. One use.',
-      'Piercing Rounds': 'Toggle. Your NEXT shot (Deagle or Shotgun) ignores walls and can hit multiple enemies. One use.',
+      'Piercing Rounds': 'Toggle. Your NEXT weapon shot ignores walls and can hit multiple enemies. One use.',
       'Lucky Clover': 'When you shoot, 50% chance to deal +1 extra to one victim. Consumed when it procs.',
     };
 
@@ -544,6 +544,12 @@
             const tiles = pierce ? shotgunTilesIgnoreWalls(a) : shotgunTiles(a);
             const disabled = isOnCooldown(a, 'shotgun');
             for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'shotgun', disabled });
+        }
+
+        // Akimbo Uzis (no cooldown)
+        if (a.has_uzis) {
+          const tiles = pierce ? uzisTilesIgnoreWalls(a) : uzisTiles(a);
+          for (const [c, r] of tiles) actionTiles.push({ c, r, weapon: 'uzis', disabled: false });
         }
 
         // Grenade targeting area (not a cooldown weapon)
