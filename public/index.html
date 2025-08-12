@@ -147,9 +147,11 @@
         socket.emit('move', { room: me.room, move:{ type:'throw_grenade', who: me.name, target:{ col:p.col, row:p.row } } });
       } else if (you.has_deagle){
         socket.emit('move', { room: me.room, move:{ type:'shoot', who: me.name } });
-      } else if (you.has_shotgun){
+        } else if (you.has_shotgun){
         socket.emit('move', { room: me.room, move:{ type:'shotgun', who: me.name } });
-      }
+        } else if (you.has_uzis){
+        socket.emit('move', { room: me.room, move:{ type:'uzi', who: me.name } });
+        }
     });
 
     window.addEventListener('keydown', (e) => {
@@ -246,6 +248,47 @@
       }
       return [...out].map(s=>s.split(',').map(Number));
     }
+
+    function uzisTiles(p){
+        // 3x3 slab ahead, excluding middle column; walls can block per side
+        const depth = 3 + ((p.has_scope && p.consumable_selected === 'Scope') ? 1 : 0);
+        const [dc, dr] = DIRS[p.facing];
+        const horizontal = (p.facing === 'left' || p.facing === 'right');
+        const pc = horizontal ? 0 : 1, pr = horizontal ? 1 : 0;
+        const blocked = new Map([[-1,false],[1,false]]);
+        const out = [];
+        for(let d=1; d<=depth; d++){
+            for(const side of [-1, 1]){ // exclude center column
+            if(blocked.get(side)) continue;
+            const tc = p.col + dc*d + pc*side, tr = p.row + dr*d + pr*side;
+            if(!inBounds(tc,tr)) continue;
+            // check walls along mini-ray
+            let w=false;
+            for(let s=1; s<=d; s++){
+                const cc = p.col + dc*s + pc*side, rr = p.row + dr*s + pr*side;
+                const o = obAt(cc,rr); if(o && o.type==='wall'){ w=true; break; }
+            }
+            if(w){ blocked.set(side,true); continue; }
+            out.push([tc,tr]);
+            }
+        }
+        return out;
+        }
+        function uzisTilesIgnoreWalls(p){
+        const depth = 3 + ((p.has_scope && p.consumable_selected === 'Scope') ? 1 : 0);
+        const [dc, dr] = DIRS[p.facing];
+        const horizontal = (p.facing === 'left' || p.facing === 'right');
+        const pc = horizontal ? 0 : 1, pr = horizontal ? 1 : 0;
+        const out = [];
+        for(let d=1; d<=depth; d++){
+            for(const side of [-1,1]){ // exclude center
+            const c = p.col + dc*d + pc*side, r = p.row + dr*d + pr*side;
+            if(inBounds(c,r)) out.push([c,r]);
+            }
+        }
+        return out;
+    }
+
     function deagleTilesIgnoreWalls(p){
       const rng = 5 + (scopeOn(p)?1:0);
       const [dc,dr] = DIRS[p.facing];
@@ -265,6 +308,21 @@
       }
       return out;
     }
+    function uzisTilesIgnoreWalls(p){
+        // 3 deep, exclude center column; walls ignored
+        const depth = 3 + (scopeOn(p) ? 1 : 0);
+        const [dc, dr] = DIRS[p.facing];
+        const horiz = (p.facing === 'left' || p.facing === 'right'), pc = horiz ? 0 : 1, pr = horiz ? 1 : 0;
+        const out = [];
+        for (let d = 1; d <= depth; d++) {
+            for (const side of [-1, 1]) { // exclude center
+            const c = p.col + dc * d + pc * side, r = p.row + dr * d + pr * side;
+            if (inBounds(c, r)) out.push([c, r]);
+            }
+        }
+        return out;
+    }
+
     function grenadeTiles(p){
       if(!(p.consumable_selected==='Grenade' && p.grenade_count>0)) return [];
       const [dc,dr]=DIRS[p.facing];
@@ -283,6 +341,7 @@
     const DESCR = {
       Deagle: 'Right‑click a red tile on your facing line to shoot.',
       Shotgun: 'Right‑click a red tile in the 3‑wide fan ahead to blast.',
+      'Akimbo Uzis': 'Right-click to spray two lanes (3 deep) excluding center; walls can block. Scope adds +1 depth. Deals 1 dmg.',
       'Agility Boots': 'Hold Shift while moving to step 2 tiles.',
       Scope: 'Toggle to add +1 range/depth to weapons.',
       Shield: 'Blocks the next damage you would take.',
@@ -374,6 +433,7 @@
                 mkPill(`Shotgun${cd > 0 ? ' (CD)' : ''}`, false, cd > 0, null, "Wide spread shot; pushes you back 1 tile. Cannot fire two turns in a row.")
             );
         }
+        if (p.has_uzis)  myInvBox.appendChild(mkPill('Akimbo Uzis', false, false, null, DESCR['Akimbo Uzis']));
         if(p.has_agility_boots) myInvBox.appendChild(mkPill('Agility Boots', false, false, null, DESCR['Agility Boots']));
         if (p.has_scope) {
             const selected = p.consumable_selected === 'Scope';

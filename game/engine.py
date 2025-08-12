@@ -8,6 +8,7 @@ GRID_ROWS = 8
 MAX_HP = 5
 DEAGLE_BASE_RANGE_TILES = 5
 SHOTGUN_BASE_DEPTH = 2
+UZI_BASE_DEPTH = 3  # 3x3 slab depth for Akimbo Uzis (scope can add +1)
 DIRECTIONS = {"left":(-1,0), "right":(1,0), "up":(0,-1), "down":(0,1)}
 
 PLAYER_THEMES = [
@@ -174,7 +175,7 @@ def join(game, name):
         "col": col, "row": row, "facing": "right",
         "hp": MAX_HP,
         # inventory/flags
-        "has_deagle": False, "has_shotgun": False,
+        "has_deagle": False, "has_shotgun": False, "has_uzis": False,
         "has_agility_boots": False, "has_scope": False, "has_shield": False,
         "has_grenade": False, "grenade_count": 0, "consumable_selected": None,
         "last_water_pos": None, "has_piercing": False, "piercing_count": 0,
@@ -228,6 +229,60 @@ def _shotgun_tiles(st, p):
                 continue
             out.add((tc, tr))
     return sorted(out)
+
+def _uzis_tiles(st, p):
+    """
+    3x3 slab in front, EXCLUDING the middle column (i.e., only side -1 and +1),
+    depth = UZI_BASE_DEPTH (+1 if Scope is toggled). Walls can block per side.
+    """
+    if not p.get("has_uzis"):
+        return []
+    depth_max = UZI_BASE_DEPTH + (1 if (p.get("has_scope") and p.get("consumable_selected") == "Scope") else 0)
+    dc, dr = DIRECTIONS[p["facing"]]
+    horizontal = p["facing"] in ("left", "right")
+    pc, pr = (0, 1) if horizontal else (1, 0)
+    # We exclude the center column (side==0), and track wall blocking per side
+    blocked = {-1: False, 1: False}
+    out = set()
+    for d in range(1, depth_max + 1):
+        for side in (-1, 1):  # NO center
+            if blocked[side]:
+                continue
+            tc = p["col"] + dc * d + pc * side
+            tr = p["row"] + dr * d + pr * side
+            if not _in_bounds(tc, tr):
+                continue
+            # check walls along this mini-ray to reach (tc,tr)
+            blocked_here = False
+            for s in range(1, d + 1):
+                cc = p["col"] + dc * s + pc * side
+                rr = p["row"] + dr * s + pr * side
+                ob = _ob_at(st, cc, rr)
+                if ob and ob["type"] == "wall":
+                    blocked_here = True
+                    break
+            if blocked_here:
+                blocked[side] = True
+                continue
+            out.add((tc, tr))
+    return sorted(out)
+
+def _uzis_tiles_ignore_walls(st, p):
+    """Akimbo Uzis area when walls are ignored: 3x(depth) slab excluding center lane."""
+    if not p.get("has_uzis"):
+        return []
+    depth_max = UZI_BASE_DEPTH + (1 if (p.get("has_scope") and p.get("consumable_selected") == "Scope") else 0)
+    dc, dr = DIRECTIONS[p["facing"]]
+    horizontal = p["facing"] in ("left", "right")
+    pc, pr = (0, 1) if horizontal else (1, 0)
+    tiles = []
+    for d in range(1, depth_max + 1):
+        for side in (-1, 1):  # exclude center lane
+            c = p["col"] + dc * d + pc * side
+            r = p["row"] + dr * d + pr * side
+            if _in_bounds(c, r):
+                tiles.append((c, r))
+    return tiles
 
 def weapon_tiles_ignore_walls(st, p, pattern, range_or_depth, width=1):
     """
@@ -291,10 +346,14 @@ def _pickup_if_item(st, p):
     t = it["type"]
     consumed = True
     if t == "mystery_weapon":
+        # Only one weapon at a time
         p["has_deagle"] = False
         p["has_shotgun"] = False
-        if random.random() < 0.5: p["has_deagle"] = True
-        else:                      p["has_shotgun"] = True
+        p["has_uzis"]   = False
+        give = random.choice(["deagle", "shotgun", "uzis"])
+        if give == "deagle":  p["has_deagle"]  = True
+        elif give == "shotgun": p["has_shotgun"] = True
+        else:                 p["has_uzis"]    = True
     elif t == "mystery_item":
         picks = []
         if not p["has_agility_boots"]: picks.append("agility")
@@ -379,7 +438,7 @@ def _restart(g):
     for a in st["actors"].values():
         a.update({
             "hp": MAX_HP,
-            "has_deagle": False, "has_shotgun": False,
+            "has_deagle": False, "has_shotgun": False, "has_uzis": False,
             "has_agility_boots": False, "has_scope": False, "has_shield": False,
             "has_grenade": False, "grenade_count": 0, "has_piercing": False, "piercing_count": 0,
             "consumable_selected": None, "last_water_pos": None, "facing": "right",
@@ -577,6 +636,28 @@ def apply_move(game, move):
         _advance_turn(g)
         return g
 
+    if t == "uzi" and you.get("has_uzis"):
+        pierce = (you["consumable_selected"] == "Piercing" and you["piercing_count"] > 0)
+        tiles = _uzis_tiles_ignore_walls(st, you) if pierce else _uzis_tiles(st, you)
+        victims = []
+        for name, a in st["actors"].items():
+            if name == cur or a["hp"] <= 0:
+                continue
+            if (a["col"], a["row"]) in tiles:
+                victims.append(name)
+        for v in victims:
+            _apply_damage(st, v, 1)
+        _maybe_clover_bonus(st, cur, victims)
+        if pierce:
+            you["piercing_count"] -= 1
+            if you["piercing_count"] <= 0:
+                you["has_piercing"] = False
+                if you["consumable_selected"] == "Piercing":
+                    you["consumable_selected"] = None
+            else:
+                you["consumable_selected"] = "Piercing"
+        _advance_turn(g)
+        return g
 
     if t == "throw_grenade" and you["grenade_count"] > 0 and you["consumable_selected"] == "Grenade":
         tgt = move.get("target") or {}
