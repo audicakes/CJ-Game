@@ -525,6 +525,10 @@ def apply_move(game, move):
     you = st["actors"].get(cur)
     if not you or you["hp"] <= 0:
         return g
+    # If Grenade targeting is toggled on, disallow all weapon shots this turn
+    if you.get("consumable_selected") == "Grenade" and t in ("shoot", "shotgun", "uzi", "quickshot"):
+        return g
+
     
     # Quickshot gating: after using the free move, only face/aim, quickshot, or end_turn are allowed
     if you.get("has_quickshot") and you.get("qs_move_used", False) and t not in ("face", "quickshot", "end_turn", "toggle_scope", "toggle_piercing"):
@@ -569,10 +573,14 @@ def apply_move(game, move):
             if ok:
                 you["col"], you["row"] = c, r
                 _pickup_if_item(st, you)
-                # Quickshot: one free move that does NOT end the turn
+                # Quickshot: entering shoot-only phase after a successful free move.
+                # If Grenade was toggled, auto turn it off so the player can shoot.
                 if you.get("has_quickshot") and not you.get("qs_move_used", False):
                     you["qs_move_used"] = True
+                    if you.get("consumable_selected") == "Grenade":
+                        you["consumable_selected"] = None
                     return g
+                
         _advance_turn(g)
         return g
 
